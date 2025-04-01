@@ -1,2 +1,4 @@
-Archive
+archive/*/
+!archive/*.csv
 reports
+.idea
