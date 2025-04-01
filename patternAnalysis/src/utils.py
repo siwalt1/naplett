@@ -6,7 +6,7 @@ from datetime import datetime
 
 def list_user_directories():
     """List all directories in the archive folder and let user select one"""
-    archive_path = os.path.join("..", "archive")
+    archive_path = os.path.join("../..", "archive")
     if not os.path.exists(archive_path):
         print(f"Error: {archive_path} directory not found.")
         sys.exit(1)
@@ -46,7 +46,7 @@ def find_latest_file(directory, pattern):
     return os.path.join(directory, latest_file)
 
 
-def save_report(report, reports_dir=os.path.join("..", "reports")):  # Changed default to parent directory
+def save_report(report, reports_dir=os.path.join("../..", "reports")):  # Changed default to parent directory
     """Save report to file with UTF-8 encoding"""
     if not os.path.exists(reports_dir):
         os.makedirs(reports_dir)

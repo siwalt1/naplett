@@ -1,9 +1,9 @@
 import warnings
-from src.utils import list_user_directories, save_report
-from src.data_loader import load_user_data, preprocess_data
-from src.data_analyzer import analyze_data
-from src.recommendation_engine import generate_recommendations
-from src.report_generator import generate_health_report
+from patternAnalysis.src.utils import list_user_directories, save_report
+from patternAnalysis.src.data_loader import load_user_data, preprocess_data
+from patternAnalysis.src.data_analyzer import analyze_data
+from patternAnalysis.src.recommendation_engine import generate_recommendations
+from patternAnalysis.src.report_generator import generate_health_report
 
 warnings.filterwarnings('ignore')
 

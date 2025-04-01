@@ -13,7 +13,7 @@ def generate_recommendations(merged_df, recent_df, processed_data):
         return recommendations, alerts, insights
 
     latest = recent_df.iloc[-1]
-    dir_name = os.path.basename(os.path.dirname(os.path.abspath('.')))
+    dir_name = os.path.basename(os.path.dirname(os.path.abspath('')))
     user_profile = {
         'gender': 'male' if 'MALE' in dir_name else 'female' if 'FEMALE' in dir_name else None,
         'height_ft': int(m.group(1)) if (m := re.search(r'(\d+)_FT', dir_name)) else None,

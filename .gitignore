@@ -1,4 +1,4 @@
-archive/*/
+patternAnalysis/archive/*/
 !archive/*.csv
-reports
+patternAnalysis/reports
 .idea
