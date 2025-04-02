@@ -1,36 +1,35 @@
-services:
-  postgres:
-    image: postgres:13
-    environment:
-      POSTGRES_USER: sleepuser
-      POSTGRES_PASSWORD: sleeppass
-      POSTGRES_DB: sleepdb
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+version: '3.8'
 
+services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     ports:
       - "5000:5000"
     environment:
-      - FLASK_ENV=development
-      - DATABASE_URL=postgresql://sleepuser:sleeppass@postgres/sleepdb
-      - SECRET_KEY=your-secret-key
+      - DATABASE_URL=${DATABASE_URL}
+      - SECRET_KEY=${SECRET_KEY}
     depends_on:
-      - postgres  # Start after postgres, but don't wait for health
+      - postgres
+    volumes:
+      - ./backend:/app
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     ports:
       - "3000:3000"
     depends_on:
-      - backend  # Start after backend, but don't wait for health
+      - backend
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"  # Optional: Add if you need host access
 
 volumes:
-  pgdata:
+  postgres_data:

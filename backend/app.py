@@ -8,6 +8,7 @@ from flask_login import LoginManager, login_user, login_required, logout_user, c
 from sqlalchemy.exc import OperationalError
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
+from flask_migrate import Migrate  # Ensure this import is present
 
 from models import db, User, SleepData
 from user_model import SleepUserModel
@@ -28,13 +29,16 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key')
 CORS(app, supports_credentials=True)
 db.init_app(app)
 
+# Initialize Flask-Migrate
+migrate = Migrate(app, db)  # Ensure this line is present
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))  # Updated to use db.session.get()
+    return db.session.get(User, int(user_id))
 
 # Add a root endpoint for health check
 @app.route('/')
@@ -97,7 +101,17 @@ def add_sleep():
         user_id=current_user.id,
         date=date_obj,
         sleep_score=float(data['sleep_score']),
-        hours_slept=float(data['hours_slept'])
+        hours_slept=float(data['hours_slept']),
+        spo2_percentage=data.get('spo2_percentage'),
+        readiness_score=data.get('readiness_score'),
+        deep_sleep_duration=data.get('deep_sleep_duration'),
+        rem_sleep_duration=data.get('rem_sleep_duration'),
+        light_sleep_duration=data.get('light_sleep_duration'),
+        average_heart_rate=data.get('average_heart_rate'),
+        average_hrv=data.get('average_hrv'),
+        active_calories=data.get('active_calories'),
+        steps=data.get('steps'),
+        sedentary_time=data.get('sedentary_time')
     )
     db.session.add(sleep)
     db.session.commit()
@@ -106,12 +120,28 @@ def add_sleep():
 @app.route('/sleep', methods=['GET'])
 @login_required
 def get_sleep():
-    sleep_data = SleepData.query.filter_by(user_id=current_user.id).all()
+    sleep_data = db.session.execute(db.select(SleepData).filter_by(user_id=current_user.id)).scalars().all()
     user_model = SleepUserModel(current_user.id)
     user_model.update_from_db(sleep_data)
     user_model.generate_recommendations()
     return jsonify({
-        'sleep_data': [{'date': d.date.isoformat(), 'score': d.sleep_score, 'hours': d.hours_slept} for d in sleep_data],
+        'sleep_data': [
+            {
+                'date': d.date.isoformat(),
+                'score': d.sleep_score,
+                'hours': d.hours_slept,
+                'spo2_percentage': d.spo2_percentage,
+                'readiness_score': d.readiness_score,
+                'deep_sleep_duration': d.deep_sleep_duration,
+                'rem_sleep_duration': d.rem_sleep_duration,
+                'light_sleep_duration': d.light_sleep_duration,
+                'average_heart_rate': d.average_heart_rate,
+                'average_hrv': d.average_hrv,
+                'active_calories': d.active_calories,
+                'steps': d.steps,
+                'sedentary_time': d.sedentary_time
+            } for d in sleep_data
+        ],
         'user_model': user_model.to_dict()
     })
 

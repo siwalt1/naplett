@@ -144,6 +144,17 @@ function Dashboard({setIsLoggedIn}) {
                         <ListGroup.Item>
                             <strong>Trend:</strong> {userModel.trends?.sleep_trend?.toFixed(2) || 'N/A'}%
                         </ListGroup.Item>
+                        <ListGroup.Item>
+                            <strong>Current SpO2:</strong> {userModel.sleep_metrics?.current_spo2?.toFixed(1) || 'N/A'}%
+                        </ListGroup.Item>
+                        <ListGroup.Item>
+                            <strong>Current Readiness
+                                Score:</strong> {userModel.sleep_metrics?.current_readiness || 'N/A'}
+                        </ListGroup.Item>
+                        <ListGroup.Item>
+                            <strong>Deep Sleep
+                                Duration:</strong> {userModel.sleep_metrics?.current_deep_sleep?.toFixed(1) || 'N/A'} hours
+                        </ListGroup.Item>
                     </ListGroup>
                     <h5 className="mt-3">Recommendations</h5>
                     {userModel.recommendations?.length > 0 ? (

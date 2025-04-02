@@ -15,3 +15,14 @@ class SleepData(db.Model):
     date = db.Column(db.Date, nullable=False)
     sleep_score = db.Column(db.Float, nullable=False)
     hours_slept = db.Column(db.Float, nullable=False)
+    # Add new fields to match user_model.py expectations
+    spo2_percentage = db.Column(db.Float, nullable=True)
+    readiness_score = db.Column(db.Float, nullable=True)
+    deep_sleep_duration = db.Column(db.Integer, nullable=True)  # In seconds
+    rem_sleep_duration = db.Column(db.Integer, nullable=True)  # In seconds
+    light_sleep_duration = db.Column(db.Integer, nullable=True)  # In seconds
+    average_heart_rate = db.Column(db.Float, nullable=True)
+    average_hrv = db.Column(db.Float, nullable=True)
+    active_calories = db.Column(db.Integer, nullable=True)
+    steps = db.Column(db.Integer, nullable=True)
+    sedentary_time = db.Column(db.Integer, nullable=True)  # In seconds
