@@ -2,3 +2,4 @@ patternAnalysis/archive/*/
 !archive/*.csv
 patternAnalysis/reports
 .idea
+/backend/venv

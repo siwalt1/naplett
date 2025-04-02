@@ -12,13 +12,19 @@ services:
       - postgres
     volumes:
       - ./backend:/app
+    networks:
+      - naplett-network
 
   frontend:
     build: ./frontend
+    environment:
+      - REACT_APP_API_URL=http://backend:5000
     ports:
       - "3000:3000"
     depends_on:
       - backend
+    networks:
+      - naplett-network
 
   postgres:
     image: postgres:13
@@ -30,6 +36,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"  # Optional: Add if you need host access
+    networks:
+      - naplett-network
+
+networks:
+  naplett-network:
+    driver: bridge
 
 volumes:
   postgres_data:

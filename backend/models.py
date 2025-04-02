@@ -12,17 +12,17 @@ class User(UserMixin, db.Model):
 class SleepData(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False)
-    sleep_score = db.Column(db.Float, nullable=False)
-    hours_slept = db.Column(db.Float, nullable=False)
-    # Add new fields to match user_model.py expectations
-    spo2_percentage = db.Column(db.Float, nullable=True)
-    readiness_score = db.Column(db.Float, nullable=True)
-    deep_sleep_duration = db.Column(db.Integer, nullable=True)  # In seconds
-    rem_sleep_duration = db.Column(db.Integer, nullable=True)  # In seconds
-    light_sleep_duration = db.Column(db.Integer, nullable=True)  # In seconds
-    average_heart_rate = db.Column(db.Float, nullable=True)
-    average_hrv = db.Column(db.Float, nullable=True)
-    active_calories = db.Column(db.Integer, nullable=True)
-    steps = db.Column(db.Integer, nullable=True)
-    sedentary_time = db.Column(db.Integer, nullable=True)  # In seconds
+    date = db.Column(db.Date, nullable=False)  # Still useful for tracking
+    sleep_score = db.Column(db.Float, nullable=False)  # Calculated
+    total_sleep_duration = db.Column(db.Integer, nullable=False)  # In minutes
+    deep_sleep_duration = db.Column(db.Integer, nullable=False)  # In minutes
+    rem_sleep_duration = db.Column(db.Integer, nullable=False)  # In minutes
+    efficiency = db.Column(db.Float, nullable=False)  # Percentage (0-100)
+    restless_periods = db.Column(db.Integer, nullable=False)
+    sleep_midpoint = db.Column(db.DateTime, nullable=False)
+    bedtime_start = db.Column(db.DateTime, nullable=False)
+    bedtime_end = db.Column(db.DateTime, nullable=False)
+    lowest_heart_rate = db.Column(db.Integer, nullable=True)  # In bpm
+    average_hrv = db.Column(db.Float, nullable=True)  # In ms
+    resting_heart_rate = db.Column(db.Integer, nullable=True)  # In bpm
+    respiratory_rate = db.Column(db.Float, nullable=True)  # Breaths per minute
