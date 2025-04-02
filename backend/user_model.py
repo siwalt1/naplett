@@ -12,7 +12,6 @@ class SleepUserModel:
             'current_hours': None,
             'avg_hours_7d': None,
             'avg_hours_30d': None,
-            # New metrics
             'current_spo2': None,
             'avg_spo2_7d': None,
             'avg_spo2_30d': None,
@@ -78,8 +77,13 @@ class SleepUserModel:
         recent_7d = [d for d in self.sleep_data if d.date >= seven_days_ago]
         recent_30d = [d for d in self.sleep_data if d.date >= thirty_days_ago]
 
-        def safe_mean(data, attr):
-            values = [getattr(d, attr) for d in data if getattr(d, attr) is not None]
+        def safe_mean(data, attr=None):
+            if attr is not None:
+                # Case 1: Data is a list of objects, extract the attribute
+                values = [getattr(d, attr) for d in data if getattr(d, attr) is not None]
+            else:
+                # Case 2: Data is already a list of values
+                values = [d for d in data if d is not None]
             return np.mean(values) if values else None
 
         # Sleep score averages
@@ -99,12 +103,12 @@ class SleepUserModel:
         self.sleep_metrics['avg_readiness_30d'] = safe_mean(recent_30d, 'readiness_score')
 
         # Deep sleep averages (in hours)
-        self.sleep_metrics['avg_deep_sleep_7d'] = safe_mean([(d.deep_sleep_duration or 0) / 3600 for d in recent_7d], None)
-        self.sleep_metrics['avg_deep_sleep_30d'] = safe_mean([(d.deep_sleep_duration or 0) / 3600 for d in recent_30d], None)
+        self.sleep_metrics['avg_deep_sleep_7d'] = safe_mean([(d.deep_sleep_duration or 0) / 3600 for d in recent_7d])
+        self.sleep_metrics['avg_deep_sleep_30d'] = safe_mean([(d.deep_sleep_duration or 0) / 3600 for d in recent_30d])
 
         # REM sleep averages (in hours)
-        self.sleep_metrics['avg_rem_sleep_7d'] = safe_mean([(d.rem_sleep_duration or 0) / 3600 for d in recent_7d], None)
-        self.sleep_metrics['avg_rem_sleep_30d'] = safe_mean([(d.rem_sleep_duration or 0) / 3600 for d in recent_30d], None)
+        self.sleep_metrics['avg_rem_sleep_7d'] = safe_mean([(d.rem_sleep_duration or 0) / 3600 for d in recent_7d])
+        self.sleep_metrics['avg_rem_sleep_30d'] = safe_mean([(d.rem_sleep_duration or 0) / 3600 for d in recent_30d])
 
         # Heart rate averages
         self.sleep_metrics['avg_heart_rate_7d'] = safe_mean(recent_7d, 'average_heart_rate')
@@ -119,8 +123,8 @@ class SleepUserModel:
         self.sleep_metrics['avg_steps_30d'] = safe_mean(recent_30d, 'steps')
 
         # Sedentary time averages (in hours)
-        self.sleep_metrics['avg_sedentary_time_7d'] = safe_mean([(d.sedentary_time or 0) / 3600 for d in recent_7d], None)
-        self.sleep_metrics['avg_sedentary_time_30d'] = safe_mean([(d.sedentary_time or 0) / 3600 for d in recent_30d], None)
+        self.sleep_metrics['avg_sedentary_time_7d'] = safe_mean([(d.sedentary_time or 0) / 3600 for d in recent_7d])
+        self.sleep_metrics['avg_sedentary_time_30d'] = safe_mean([(d.sedentary_time or 0) / 3600 for d in recent_30d])
 
         # Calculate trends (percentage change over the last 7 days compared to the previous 7 days)
         previous_7d = [d for d in self.sleep_data if thirty_days_ago <= d.date < seven_days_ago]
@@ -134,12 +138,12 @@ class SleepUserModel:
         self.trends['hours_trend'] = calculate_trend(self.sleep_metrics['avg_hours_7d'], safe_mean(previous_7d, 'hours_slept'))
         self.trends['spo2_trend'] = calculate_trend(self.sleep_metrics['avg_spo2_7d'], safe_mean(previous_7d, 'spo2_percentage'))
         self.trends['readiness_trend'] = calculate_trend(self.sleep_metrics['avg_readiness_7d'], safe_mean(previous_7d, 'readiness_score'))
-        self.trends['deep_sleep_trend'] = calculate_trend(self.sleep_metrics['avg_deep_sleep_7d'], safe_mean([(d.deep_sleep_duration or 0) / 3600 for d in previous_7d], None))
-        self.trends['rem_sleep_trend'] = calculate_trend(self.sleep_metrics['avg_rem_sleep_7d'], safe_mean([(d.rem_sleep_duration or 0) / 3600 for d in previous_7d], None))
+        self.trends['deep_sleep_trend'] = calculate_trend(self.sleep_metrics['avg_deep_sleep_7d'], safe_mean([(d.deep_sleep_duration or 0) / 3600 for d in previous_7d]))
+        self.trends['rem_sleep_trend'] = calculate_trend(self.sleep_metrics['avg_rem_sleep_7d'], safe_mean([(d.rem_sleep_duration or 0) / 3600 for d in previous_7d]))
         self.trends['heart_rate_trend'] = calculate_trend(self.sleep_metrics['avg_heart_rate_7d'], safe_mean(previous_7d, 'average_heart_rate'))
         self.trends['hrv_trend'] = calculate_trend(self.sleep_metrics['avg_hrv_7d'], safe_mean(previous_7d, 'average_hrv'))
         self.trends['steps_trend'] = calculate_trend(self.sleep_metrics['avg_steps_7d'], safe_mean(previous_7d, 'steps'))
-        self.trends['sedentary_time_trend'] = calculate_trend(self.sleep_metrics['avg_sedentary_time_7d'], safe_mean([(d.sedentary_time or 0) / 3600 for d in previous_7d], None))
+        self.trends['sedentary_time_trend'] = calculate_trend(self.sleep_metrics['avg_sedentary_time_7d'], safe_mean([(d.sedentary_time or 0) / 3600 for d in previous_7d]))
 
     def generate_recommendations(self):
         self.recommendations = []
