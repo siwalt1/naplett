@@ -4,11 +4,19 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from datetime import datetime, timedelta
+from sqlalchemy import func
 
 from models import db, User, SleepRecord, Baseline, Trend, Insight
 from services.data_import import process_oura_import
-from services.analysis import calculate_sleep_score, calculate_baseline, calculate_trends, generate_insights
-
+from services.analysis import (
+    calculate_sleep_score,
+    calculate_baseline,
+    calculate_trends,
+    generate_insights,
+    generate_baseline_insights,
+    calculate_sleep_consistency,
+    calculate_correlation
+)
 # Initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_testing')
@@ -180,7 +188,11 @@ def get_sleep_records():
             'bedtime_start': record.bedtime_start.isoformat(),
             'bedtime_end': record.bedtime_end.isoformat(),
             'sleep_score': record.sleep_score,
-            'sleep_score_components': record.sleep_score_components
+            'sleep_score_components': record.sleep_score_components,
+            'average_hrv': record.average_hrv,
+            'resting_heart_rate': record.resting_heart_rate,
+            'lowest_heart_rate': record.lowest_heart_rate,
+            'respiratory_rate': record.respiratory_rate
         } for record in records]
     }), 200
 
@@ -333,5 +345,283 @@ def get_dashboard():
         'record_count': record_count
     }), 200
 
+@app.route('/api/user/profile', methods=['PUT'])
+@login_required
+def update_profile():
+    data = request.json
+
+    # Make sure we have data
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    try:
+        # Update user fields
+        if 'email' in data and data['email'] != current_user.email:
+            # Check if email is already in use by another user
+            existing_user = User.query.filter_by(email=data['email']).first()
+            if existing_user and existing_user.id != current_user.id:
+                return jsonify({'error': 'Email is already in use'}), 400
+            current_user.email = data['email']
+
+        if 'first_name' in data:
+            current_user.first_name = data['first_name']
+
+        if 'last_name' in data:
+            current_user.last_name = data['last_name']
+
+        if 'birth_date' in data and data['birth_date']:
+            try:
+                current_user.birth_date = datetime.strptime(data['birth_date'], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format for birth_date'}), 400
+
+        if 'gender' in data:
+            current_user.gender = data['gender']
+
+        # Save changes
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Profile updated successfully',
+            'id': current_user.id,
+            'email': current_user.email,
+            'first_name': current_user.first_name,
+            'last_name': current_user.last_name,
+            'birth_date': current_user.birth_date.isoformat() if current_user.birth_date else None,
+            'gender': current_user.gender,
+            'created_at': current_user.created_at.isoformat(),
+            'last_login': current_user.last_login.isoformat() if current_user.last_login else None
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update profile: {str(e)}'}), 500
+
+    # Add this route to app.py
+
+@app.route('/api/sleep/baseline/history')
+@login_required
+def get_baseline_history():
+    """Get historical baseline data for comparing changes over time"""
+    period = request.args.get('period', 'lastMonth')
+
+    # Get current date
+    latest_date = db.session.query(func.max(SleepRecord.record_date)).filter_by(user_id=current_user.id).scalar()
+
+    if not latest_date:
+        return jsonify({'error': 'No sleep records available'}), 404
+
+    # Determine comparison period
+    if period == 'lastMonth':
+        comparison_lookback = 30
+    elif period == 'lastQuarter':
+        comparison_lookback = 90
+    elif period == 'lastYear':
+        comparison_lookback = 365
+    else:
+        comparison_lookback = 30
+
+    # Get all historical baselines
+    baselines = Baseline.query.filter(
+        Baseline.user_id == current_user.id
+    ).order_by(Baseline.end_date.desc()).all()
+
+    if not baselines:
+        return jsonify({'error': 'No baseline data available yet'}), 404
+
+    # Filter baselines based on comparison period
+    filtered_baselines = []
+    latest_baseline_date = baselines[0].end_date
+
+    for baseline in baselines:
+        # Only include baselines that are either the most recent or from our comparison period
+        days_apart = (latest_baseline_date - baseline.end_date).days
+        if days_apart == 0 or (days_apart >= comparison_lookback - 14 and days_apart <= comparison_lookback + 14):
+            filtered_baselines.append({
+                'id': baseline.id,
+                'period_name': 'Current' if days_apart == 0 else 'Previous',
+                'start_date': baseline.start_date.isoformat(),
+                'end_date': baseline.end_date.isoformat(),
+                'avg_total_sleep': baseline.avg_total_sleep,
+                'avg_deep_sleep': baseline.avg_deep_sleep,
+                'avg_rem_sleep': baseline.avg_rem_sleep,
+                'avg_light_sleep': baseline.avg_light_sleep,
+                'avg_efficiency': baseline.avg_efficiency,
+                'avg_hrv': baseline.avg_hrv,
+                'avg_resting_hr': baseline.avg_resting_hr,
+                'avg_respiratory_rate': baseline.avg_respiratory_rate
+            })
+
+    return jsonify({
+        'baselineHistory': filtered_baselines
+    }), 200
+
+@app.route('/api/sleep/baseline/insights')
+@login_required
+def get_baseline_change_insights():
+    """Get insights about changes between baseline periods"""
+    # Get the two most recent baselines
+    baselines = Baseline.query.filter_by(
+        user_id=current_user.id
+    ).order_by(Baseline.end_date.desc()).limit(2).all()
+
+    if len(baselines) < 2:
+        return jsonify({
+            'insights': [],
+            'message': 'Not enough baseline data to generate comparative insights'
+        }), 200
+
+    current_baseline = baselines[0]
+    previous_baseline = baselines[1]
+
+    # Get existing baseline change insights
+    existing_insights = Insight.query.filter_by(
+        user_id=current_user.id,
+        insight_type='baseline_change',
+        dismissed=False
+    ).all()
+
+    # Generate new insights if none exist
+    if not existing_insights:
+        insights = generate_baseline_insights(current_user.id, current_baseline, previous_baseline)
+    else:
+        insights = existing_insights
+
+    return jsonify({
+        'insights': [{
+            'id': insight.id,
+            'type': insight.insight_type,
+            'title': insight.title,
+            'description': insight.description,
+            'importance': insight.importance,
+            'created_at': insight.created_at.isoformat(),
+            'read': insight.read,
+            'related_metric': insight.related_metric
+        } for insight in insights]
+    }), 200
+
+@app.route('/api/sleep/patterns')
+@login_required
+def get_sleep_patterns():
+    """Get sleep timing patterns and consistency metrics"""
+    period = request.args.get('period', 'weekly')
+
+    # Determine date range based on period
+    end_date = db.session.query(func.max(SleepRecord.record_date)).filter_by(user_id=current_user.id).scalar()
+
+    if not end_date:
+        return jsonify({'error': 'No sleep records available'}), 404
+
+    if period == 'weekly':
+        start_date = end_date - timedelta(days=6)  # Last 7 days
+        limit = 7
+    else:  # monthly
+        start_date = end_date - timedelta(days=29)  # Last 30 days
+        limit = 30
+
+    # Get sleep records within date range
+    records = SleepRecord.query.filter(
+        SleepRecord.user_id == current_user.id,
+        SleepRecord.record_date >= start_date,
+        SleepRecord.record_date <= end_date
+    ).order_by(SleepRecord.record_date.asc()).all()
+
+    if not records:
+        return jsonify({'error': 'No sleep records available for selected period'}), 404
+
+    # Calculate consistency metrics
+    consistency_metrics = calculate_sleep_consistency(records)
+
+    # Format sleep timing data
+    sleep_timing = []
+    for record in records:
+        timing = {
+            'date': record.record_date.isoformat(),
+            'bedtime': record.bedtime_start.isoformat(),
+            'waketime': record.bedtime_end.isoformat(),
+            'duration': record.total_sleep_duration,
+            'deep_sleep': record.deep_sleep_duration,
+            'rem_sleep': record.rem_sleep_duration,
+            'light_sleep': record.light_sleep_duration
+        }
+        sleep_timing.append(timing)
+
+    return jsonify({
+        'sleep_timing': sleep_timing,
+        'consistency_metrics': consistency_metrics
+    }), 200
+
+@app.route('/api/sleep/hrv/analysis')
+@login_required
+def get_hrv_analysis():
+    """Get detailed HRV analysis data"""
+    period = request.args.get('period', 'weekly')
+
+    # Determine date range based on period
+    end_date = db.session.query(func.max(SleepRecord.record_date)).filter_by(user_id=current_user.id).scalar()
+
+    if not end_date:
+        return jsonify({'error': 'No sleep records available'}), 404
+
+    if period == 'weekly':
+        start_date = end_date - timedelta(days=6)  # Last 7 days
+    else:  # monthly
+        start_date = end_date - timedelta(days=29)  # Last 30 days
+
+    # Get sleep records with HRV data within date range
+    records = SleepRecord.query.filter(
+        SleepRecord.user_id == current_user.id,
+        SleepRecord.record_date >= start_date,
+        SleepRecord.record_date <= end_date,
+        SleepRecord.average_hrv != None
+    ).order_by(SleepRecord.record_date.asc()).all()
+
+    if not records:
+        return jsonify({'error': 'No HRV data available for selected period'}), 404
+
+    # Calculate HRV statistics
+    hrv_data = []
+    hrv_values = []
+    sleep_scores = []
+
+    for record in records:
+        hrv_data.append({
+            'date': record.record_date.isoformat(),
+            'average_hrv': record.average_hrv,
+            'sleep_score': record.sleep_score,
+            'resting_heart_rate': record.resting_heart_rate,
+            'lowest_heart_rate': record.lowest_heart_rate,
+            'total_sleep_duration': record.total_sleep_duration
+        })
+
+        if record.average_hrv:
+            hrv_values.append(record.average_hrv)
+
+        if record.sleep_score:
+            sleep_scores.append(record.sleep_score)
+
+    # Calculate basic statistics
+    hrv_stats = {
+        'avg_hrv': sum(hrv_values) / len(hrv_values) if hrv_values else None,
+        'max_hrv': max(hrv_values) if hrv_values else None,
+        'min_hrv': min(hrv_values) if hrv_values else None,
+        'correlation': calculate_correlation(hrv_values, sleep_scores) if hrv_values and sleep_scores else None
+    }
+
+    # Find highest and lowest HRV days
+    if hrv_values:
+        sorted_hrv_data = sorted(hrv_data, key=lambda x: x['average_hrv'], reverse=True)
+        highest_hrv = sorted_hrv_data[0]
+        lowest_hrv = sorted_hrv_data[-1]
+    else:
+        highest_hrv = None
+        lowest_hrv = None
+
+    return jsonify({
+        'hrv_data': hrv_data,
+        'hrv_stats': hrv_stats,
+        'highest_hrv': highest_hrv,
+        'lowest_hrv': lowest_hrv
+    }), 200
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')

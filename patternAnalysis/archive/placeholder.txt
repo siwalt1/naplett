@@ -1,1 +1,0 @@
-Place the user folders here for training the model

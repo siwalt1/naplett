@@ -8,6 +8,7 @@ import Register from './components/auth/Register';
 import Dashboard from './components/dashboard/Dashboard';
 import SleepUpload from './components/upload/SleepUpload';
 import SleepHistory from './components/dashboard/SleepHistory';
+import Profile from './components/profile/Profile';
 import Navbar from './components/common/Navbar';
 import Loading from './components/common/Loading';
 
@@ -82,6 +83,11 @@ function App() {
                         <Route path="/history" element={
                             <ProtectedRoute>
                                 <SleepHistory />
+                            </ProtectedRoute>
+                        } />
+                        <Route path="/profile" element={
+                            <ProtectedRoute>
+                                <Profile />
                             </ProtectedRoute>
                         } />
                         <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />

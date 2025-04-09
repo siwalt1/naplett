@@ -700,3 +700,339 @@ def generate_insights(user_id):
 
     db.session.commit()
     return insights
+
+
+def generate_baseline_insights(user_id, current_baseline, previous_baseline):
+    """
+    Generate insights about changes between baseline periods
+
+    Args:
+        user_id: User ID to generate insights for
+        current_baseline: Current baseline object
+        previous_baseline: Previous baseline object for comparison
+
+    Returns:
+        list: Generated insights about baseline changes
+    """
+    insights = []
+
+    if not current_baseline or not previous_baseline:
+        return insights
+
+    # Calculate percentage changes
+    def calc_percentage_change(current, previous):
+        if previous == 0:
+            return 0
+        return ((current - previous) / previous) * 100
+
+    # Sleep duration trends
+    sleep_duration_change = calc_percentage_change(
+        current_baseline.avg_total_sleep,
+        previous_baseline.avg_total_sleep
+    )
+
+    if abs(sleep_duration_change) >= 10:
+        direction = "increased" if sleep_duration_change > 0 else "decreased"
+        importance = 3 if sleep_duration_change > 0 else 4  # Decreased sleep is higher importance
+
+        duration_insight = Insight(
+            user_id=user_id,
+            insight_type='baseline_change',
+            title=f'Sleep duration has {direction}',
+            description=f'Your average sleep duration has {direction} by {abs(round(sleep_duration_change))}% compared to your previous baseline. ' +
+                        (f'This is a positive change! Sufficient sleep duration is essential for overall health.' if sleep_duration_change > 0 else
+                         f'This may impact your energy levels and cognitive function. Consider adjusting your schedule to allow for more sleep.'),
+            importance=importance,
+            related_metric='avg_total_sleep'
+        )
+        db.session.add(duration_insight)
+        insights.append(duration_insight)
+
+    # Deep sleep trends
+    deep_sleep_change = calc_percentage_change(
+        current_baseline.avg_deep_sleep / current_baseline.avg_total_sleep,
+        previous_baseline.avg_deep_sleep / previous_baseline.avg_total_sleep
+    )
+
+    if abs(deep_sleep_change) >= 15:
+        direction = "increased" if deep_sleep_change > 0 else "decreased"
+        importance = 3 if deep_sleep_change > 0 else 4
+
+        deep_sleep_insight = Insight(
+            user_id=user_id,
+            insight_type='baseline_change',
+            title=f'Deep sleep percentage has {direction}',
+            description=f'Your deep sleep percentage has {direction} by {abs(round(deep_sleep_change))}% compared to your previous baseline. ' +
+                        (f'This is positive! Deep sleep is crucial for physical recovery and memory consolidation.' if deep_sleep_change > 0 else
+                         f'Deep sleep is crucial for physical recovery. Consider limiting alcohol and caffeine, and ensuring your bedroom is cool and dark.'),
+            importance=importance,
+            related_metric='avg_deep_sleep'
+        )
+        db.session.add(deep_sleep_insight)
+        insights.append(deep_sleep_insight)
+
+    # Sleep efficiency trends
+    efficiency_change = calc_percentage_change(
+        current_baseline.avg_efficiency,
+        previous_baseline.avg_efficiency
+    )
+
+    if abs(efficiency_change) >= 5:
+        direction = "increased" if efficiency_change > 0 else "decreased"
+        importance = 2 if efficiency_change > 0 else 3
+
+        efficiency_insight = Insight(
+            user_id=user_id,
+            insight_type='baseline_change',
+            title=f'Sleep efficiency has {direction}',
+            description=f'Your sleep efficiency has {direction} by {abs(round(efficiency_change))}% compared to your previous baseline. ' +
+                        (f'This means you\'re spending more of your time in bed actually sleeping.' if efficiency_change > 0 else
+                         f'This means you\'re spending more time awake in bed. Consider going to bed only when sleepy and maintaining a consistent wake time.'),
+            importance=importance,
+            related_metric='avg_efficiency'
+        )
+        db.session.add(efficiency_insight)
+        insights.append(efficiency_insight)
+
+    # HRV trends
+    if current_baseline.avg_hrv and previous_baseline.avg_hrv:
+        hrv_change = calc_percentage_change(
+            current_baseline.avg_hrv,
+            previous_baseline.avg_hrv
+        )
+
+        if abs(hrv_change) >= 10:
+            direction = "increased" if hrv_change > 0 else "decreased"
+            importance = 3 if hrv_change > 0 else 4
+
+            hrv_insight = Insight(
+                user_id=user_id,
+                insight_type='baseline_change',
+                title=f'Heart rate variability has {direction}',
+                description=f'Your average HRV has {direction} by {abs(round(hrv_change))}% compared to your previous baseline. ' +
+                            (f'Higher HRV often indicates better cardiovascular fitness and stress resilience.' if hrv_change > 0 else
+                             f'Lower HRV may indicate increased stress or incomplete recovery. Consider stress management techniques and ensuring adequate rest.'),
+                importance=importance,
+                related_metric='avg_hrv'
+            )
+            db.session.add(hrv_insight)
+            insights.append(hrv_insight)
+
+    # Resting heart rate trends
+    if current_baseline.avg_resting_hr and previous_baseline.avg_resting_hr:
+        hr_change = calc_percentage_change(
+            current_baseline.avg_resting_hr,
+            previous_baseline.avg_resting_hr
+        )
+
+        if abs(hr_change) >= 7:
+            # For heart rate, lower is generally better, so reverse the logic
+            direction = "decreased" if hr_change < 0 else "increased"
+            importance = 2 if hr_change < 0 else 3
+
+            hr_insight = Insight(
+                user_id=user_id,
+                insight_type='baseline_change',
+                title=f'Resting heart rate has {direction}',
+                description=f'Your average resting heart rate has {direction} by {abs(round(hr_change))}% compared to your previous baseline. ' +
+                            (f'A lower resting heart rate often indicates improved cardiovascular fitness.' if hr_change < 0 else
+                             f'An increased resting heart rate may indicate increased stress or decreased fitness. Consider your recent activity levels and stress management.'),
+                importance=importance,
+                related_metric='avg_resting_hr'
+            )
+            db.session.add(hr_insight)
+            insights.append(hr_insight)
+
+    # Commit all insights to the database
+    db.session.commit()
+
+    return insights
+
+def calculate_sleep_consistency(sleep_records):
+    """
+    Calculate sleep consistency metrics from a series of sleep records
+
+    Args:
+        sleep_records: List of SleepRecord objects
+
+    Returns:
+        dict: Sleep consistency metrics
+    """
+    if len(sleep_records) < 3:
+        return {
+            'duration_consistency': None,
+            'timing_consistency': None,
+            'message': 'Not enough data to calculate consistency metrics'
+        }
+
+    # Extract sleep durations and bedtimes
+    durations = [record.total_sleep_duration for record in sleep_records]
+    bedtime_minutes = []
+    waketime_minutes = []
+
+    for record in sleep_records:
+        # Convert bedtime to minutes since midnight
+        bedtime = record.bedtime_start
+        bedtime_min = bedtime.hour * 60 + bedtime.minute
+
+        # Adjust for bedtimes after midnight
+        if bedtime.hour < 12:
+            bedtime_min += 24 * 60
+
+        bedtime_minutes.append(bedtime_min)
+
+        # Convert wake time to minutes since midnight
+        waketime = record.bedtime_end
+        waketime_min = waketime.hour * 60 + waketime.minute
+
+        # Adjust for wake times after noon (unlikely but possible)
+        if waketime.hour >= 12 and waketime_min < bedtime_min:
+            waketime_min += 24 * 60
+
+        waketime_minutes.append(waketime_min)
+
+    # Calculate consistency metrics
+    duration_mean = sum(durations) / len(durations)
+    duration_variance = sum((d - duration_mean) ** 2 for d in durations) / len(durations)
+    duration_std_dev = duration_variance ** 0.5
+
+    bedtime_mean = sum(bedtime_minutes) / len(bedtime_minutes)
+    bedtime_variance = sum((t - bedtime_mean) ** 2 for t in bedtime_minutes) / len(bedtime_minutes)
+    bedtime_std_dev = bedtime_variance ** 0.5
+
+    waketime_mean = sum(waketime_minutes) / len(waketime_minutes)
+    waketime_variance = sum((t - waketime_mean) ** 2 for t in waketime_minutes) / len(waketime_minutes)
+    waketime_std_dev = waketime_variance ** 0.5
+
+    # Calculate coefficient of variation for duration (as percentage)
+    duration_cv = (duration_std_dev / duration_mean) * 100 if duration_mean > 0 else 0
+
+    # Determine consistency scores
+    if duration_cv < 10:
+        duration_consistency = 'Excellent'
+    elif duration_cv < 15:
+        duration_consistency = 'Good'
+    elif duration_cv < 20:
+        duration_consistency = 'Fair'
+    else:
+        duration_consistency = 'Poor'
+
+    # For bedtime, use standard deviation in minutes
+    if bedtime_std_dev < 30:
+        bedtime_consistency = 'Excellent'
+    elif bedtime_std_dev < 45:
+        bedtime_consistency = 'Good'
+    elif bedtime_std_dev < 60:
+        bedtime_consistency = 'Fair'
+    else:
+        bedtime_consistency = 'Poor'
+
+    # For wake time, use standard deviation in minutes
+    if waketime_std_dev < 30:
+        waketime_consistency = 'Excellent'
+    elif waketime_std_dev < 45:
+        waketime_consistency = 'Good'
+    elif waketime_std_dev < 60:
+        waketime_consistency = 'Fair'
+    else:
+        waketime_consistency = 'Poor'
+
+    # Determine overall timing consistency (weighted towards the worse of the two)
+    timing_scores = {'Excellent': 4, 'Good': 3, 'Fair': 2, 'Poor': 1}
+    timing_score = min(timing_scores[bedtime_consistency], timing_scores[waketime_consistency])
+    timing_consistency = {4: 'Excellent', 3: 'Good', 2: 'Fair', 1: 'Poor'}[timing_score]
+
+    # Format time values for display
+    def format_minutes_as_time(minutes):
+        # Convert to 0-1439 range (0 to 23:59)
+        minutes = minutes % (24 * 60)
+        hours = minutes // 60
+        mins = minutes % 60
+        ampm = 'AM' if hours < 12 else 'PM'
+        hours = hours % 12
+        if hours == 0:
+            hours = 12
+        return f"{hours}:{mins:02d} {ampm}"
+
+    avg_bedtime = format_minutes_as_time(int(bedtime_mean))
+    avg_waketime = format_minutes_as_time(int(waketime_mean))
+
+    return {
+        'duration_consistency': {
+            'score': duration_consistency,
+            'cv': round(duration_cv, 1),
+            'avg_duration': round(duration_mean / 60, 1),  # in hours
+            'std_dev': round(duration_std_dev / 60, 1)  # in hours
+        },
+        'timing_consistency': {
+            'score': timing_consistency,
+            'bedtime_consistency': bedtime_consistency,
+            'waketime_consistency': waketime_consistency,
+            'bedtime_std_dev': round(bedtime_std_dev),  # in minutes
+            'waketime_std_dev': round(waketime_std_dev),  # in minutes
+            'avg_bedtime': avg_bedtime,
+            'avg_waketime': avg_waketime
+        },
+        'message': generate_consistency_message(duration_consistency, timing_consistency)
+    }
+
+def generate_consistency_message(duration_consistency, timing_consistency):
+    """Generate a user-friendly message about sleep consistency"""
+    consistency_scores = {'Excellent': 4, 'Good': 3, 'Fair': 2, 'Poor': 1}
+    duration_score = consistency_scores.get(duration_consistency, 0)
+    timing_score = consistency_scores.get(timing_consistency, 0)
+
+    combined_score = duration_score + timing_score
+
+    if combined_score >= 7:
+        return "Your sleep schedule is very consistent, which is excellent for optimizing sleep quality and overall health."
+    elif combined_score >= 5:
+        return "Your sleep schedule is reasonably consistent. Maintaining regular sleep and wake times can further improve your sleep quality."
+    elif combined_score >= 3:
+        return "Your sleep schedule shows some variability. Aim for more consistent sleep and wake times to improve your sleep quality."
+    else:
+        return "Your sleep schedule is quite irregular. Establishing a consistent sleep routine is one of the most important steps for improving sleep quality."
+
+def calculate_correlation(x_values, y_values):
+    """
+    Calculate Pearson correlation coefficient between two data series
+
+    Args:
+        x_values: First data series
+        y_values: Second data series
+
+    Returns:
+        dict: Correlation coefficient and interpretation
+    """
+    if len(x_values) != len(y_values) or len(x_values) < 3:
+        return None
+
+    n = len(x_values)
+
+    # Calculate means
+    x_mean = sum(x_values) / n
+    y_mean = sum(y_values) / n
+
+    # Calculate covariance and variances
+    covariance = sum((x_values[i] - x_mean) * (y_values[i] - y_mean) for i in range(n))
+    x_variance = sum((x - x_mean) ** 2 for x in x_values)
+    y_variance = sum((y - y_mean) ** 2 for y in y_values)
+
+    # Calculate correlation coefficient
+    correlation = covariance / ((x_variance * y_variance) ** 0.5) if x_variance > 0 and y_variance > 0 else 0
+
+    # Determine correlation strength and type
+    if abs(correlation) < 0.3:
+        strength = 'weak'
+    elif abs(correlation) < 0.7:
+        strength = 'moderate'
+    else:
+        strength = 'strong'
+
+    direction = 'positive' if correlation >= 0 else 'negative'
+
+    return {
+        'coefficient': round(correlation, 2),
+        'strength': strength,
+        'direction': direction
+    }

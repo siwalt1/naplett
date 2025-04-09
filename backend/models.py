@@ -142,7 +142,8 @@ class Insight(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Insight details
-    insight_type = db.Column(db.String(50), nullable=False)  # pattern, anomaly, recommendation
+    # Update the insight_type comment to include new types
+    insight_type = db.Column(db.String(50), nullable=False)  # pattern, anomaly, recommendation, calibration, baseline_change
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=False)
     importance = db.Column(db.Integer, default=1)  # 1-5 scale
