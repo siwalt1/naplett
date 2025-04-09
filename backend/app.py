@@ -307,7 +307,8 @@ def get_dashboard():
             'date': latest_sleep.record_date.isoformat() if latest_sleep else None,
             'sleep_score': latest_sleep.sleep_score if latest_sleep else None,
             'total_sleep_duration': latest_sleep.total_sleep_duration if latest_sleep else None,
-            'efficiency': latest_sleep.efficiency if latest_sleep else None
+            'efficiency': latest_sleep.efficiency if latest_sleep else None,
+            'deep_sleep_duration': latest_sleep.deep_sleep_duration if latest_sleep else None,
         } if latest_sleep else None,
         'baseline': {
             'avg_total_sleep': baseline.avg_total_sleep,
