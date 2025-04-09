@@ -1,26 +1,48 @@
-# Use official Node.js runtime as base image
-FROM node:16
+#FROM node:16-alpine as build
+#
+#WORKDIR /app
+#
+## Copy package files
+#COPY package*.json ./
+#
+## Install dependencies
+#RUN npm install
+#
+## Copy app source
+#COPY . .
+#
+## Build the app
+#RUN npm run build
+#
+## Production environment
+#FROM nginx:alpine
+#
+## Copy built files from build stage
+#COPY --from=build /app/build /usr/share/nginx/html
+#
+## Copy nginx configuration
+#COPY nginx.conf /etc/nginx/conf.d/default.conf
+#
+## Expose port
+#EXPOSE 3000
+#
+## Start Nginx server
+#CMD ["nginx", "-g", "daemon off;"]
+FROM node:16-alpine
 
-# Set working directory
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json ./
+COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy application code
+# Copy app source
 COPY . .
-
-# Build the React app
-RUN npm run build
-
-# Install serve to run the built app
-RUN npm install -g serve
 
 # Expose port
 EXPOSE 3000
 
-# Command to serve the app
-CMD ["serve", "-s", "build", "-l", "3000"]
+# Start development server
+CMD ["npm", "start"]

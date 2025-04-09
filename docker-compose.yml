@@ -3,41 +3,54 @@ version: '3.8'
 services:
   backend:
     build: ./backend
+    restart: always
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - SECRET_KEY=${SECRET_KEY}
+      - DATABASE_URL=postgresql://naplett:naplett_password@postgres:5432/naplett
+      - SECRET_KEY=your_secret_key_change_in_production
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ./backend:/app
     networks:
       - naplett-network
+    command: [ "/usr/local/bin/wait-for-it.sh", "postgres:5432", "--", "python", "app.py" ]
 
   frontend:
-    build: ./frontend
-    environment:
-      - REACT_APP_API_URL=http://backend:5000
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev  # We'll create this new file
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm start
+    environment:
+      - REACT_APP_API_URL=http://localhost:5001/api
     depends_on:
       - backend
-    networks:
-      - naplett-network
 
   postgres:
-    image: postgres:13
+    image: postgres:13-alpine
+    restart: always
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=naplett
+      - POSTGRES_PASSWORD=naplett_password
+      - POSTGRES_DB=naplett
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"  # Optional: Add if you need host access
     networks:
       - naplett-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U naplett" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 networks:
   naplett-network:

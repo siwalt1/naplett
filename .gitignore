@@ -1,5 +1,52 @@
-patternAnalysis/archive/*/
-!archive/*.csv
-patternAnalysis/reports
-.idea
-/backend/venv
+# Backend
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+instance/
+.webassets-cache
+.env
+venv/
+*.db
+
+# Frontend
+node_modules/
+/frontend/node_modules
+/frontend/.pnp
+/frontend/.pnp.js
+/frontend/coverage
+/frontend/build
+/frontend/.DS_Store
+/frontend/.env.local
+/frontend/.env.development.local
+/frontend/.env.test.local
+/frontend/.env.production.local
+/frontend/npm-debug.log*
+/frontend/yarn-debug.log*
+/frontend/yarn-error.log*
+
+# Docker
+.dockerignore
+
+# IDEs and editors
+.idea/
+.vscode/
+*.sublime-workspace
+*.swp
+*.swo

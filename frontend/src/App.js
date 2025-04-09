@@ -1,58 +1,94 @@
-import React, {useState} from 'react';
-import {Navbar, Nav, Container, Alert} from 'react-bootstrap';
-import axios from 'axios'; // Add this import
-import Login from './Login';
-import Dashboard from './Dashboard';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import axios from 'axios';
+
+// Import components
+import Login from './components/auth/Login';
+import Register from './components/auth/Register';
+import Dashboard from './components/dashboard/Dashboard';
+import SleepUpload from './components/upload/SleepUpload';
+import SleepHistory from './components/dashboard/SleepHistory';
+import Navbar from './components/common/Navbar';
+import Loading from './components/common/Loading';
+
+// Set base URL for API requests
+axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+axios.defaults.withCredentials = true;
 
 function App() {
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [logoutMessage, setLogoutMessage] = useState(''); // Add state for logout message
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
 
-    const handleLogout = async () => {
-        try {
-            await axios.get('http://localhost:5000/logout', {withCredentials: true});
-            setLogoutMessage('You have been logged out successfully.');
-            setTimeout(() => {
-                setIsLoggedIn(false);
-                setLogoutMessage('');
-            }, 2000); // Show message for 2 seconds before redirecting
-        } catch (err) {
-            console.error('Error logging out:', err);
-            setLogoutMessage('Error logging out. Please try again.');
-        }
+    // Check authentication status on load
+    useEffect(() => {
+        const checkAuth = async () => {
+            try {
+                const response = await axios.get('/user/profile');
+                setIsAuthenticated(true);
+                setUser(response.data);
+            } catch (error) {
+                setIsAuthenticated(false);
+                setUser(null);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        checkAuth();
+    }, []);
+
+    // Create Protected Route component
+    const ProtectedRoute = ({ children }) => {
+        if (loading) return <Loading />;
+        return isAuthenticated ? children : <Navigate to="/login" />;
     };
 
-    return (
-        <div>
-            {/* Navigation Bar */}
-            <Navbar bg="dark" variant="dark" expand="lg">
-                <Container>
-                    <Navbar.Brand href="/">
-                        <img src="/logo.png" alt="Naplett" height="30" className="d-inline-block align-top"/> Naplett
-                    </Navbar.Brand>
-                    <Navbar.Toggle aria-controls="basic-navbar-nav"/>
-                    <Navbar.Collapse id="basic-navbar-nav">
-                        <Nav className="ms-auto">
-                            {isLoggedIn ? (
-                                <Nav.Link onClick={handleLogout}>Logout</Nav.Link>
-                            ) : (
-                                <Nav.Link disabled>Login</Nav.Link>
-                            )}
-                        </Nav>
-                    </Navbar.Collapse>
-                </Container>
-            </Navbar>
+    if (loading) {
+        return <Loading />;
+    }
 
-            {/* Main Content */}
-            <Container className="mt-4">
-                {logoutMessage && (
-                    <Alert variant={logoutMessage.includes('Error') ? 'danger' : 'success'} className="text-center">
-                        {logoutMessage}
-                    </Alert>
-                )}
-                {isLoggedIn ? <Dashboard setIsLoggedIn={setIsLoggedIn}/> : <Login setIsLoggedIn={setIsLoggedIn}/>}
-            </Container>
-        </div>
+    return (
+        <Router>
+            <div className="app">
+                <Navbar
+                    isAuthenticated={isAuthenticated}
+                    user={user}
+                    setIsAuthenticated={setIsAuthenticated}
+                    setUser={setUser}
+                />
+                <main className="container py-4">
+                    <Routes>
+                        <Route path="/login" element={
+                            isAuthenticated ?
+                                <Navigate to="/dashboard" /> :
+                                <Login setIsAuthenticated={setIsAuthenticated} setUser={setUser} />
+                        } />
+                        <Route path="/register" element={
+                            isAuthenticated ?
+                                <Navigate to="/dashboard" /> :
+                                <Register setIsAuthenticated={setIsAuthenticated} setUser={setUser} />
+                        } />
+                        <Route path="/dashboard" element={
+                            <ProtectedRoute>
+                                <Dashboard user={user} />
+                            </ProtectedRoute>
+                        } />
+                        <Route path="/upload" element={
+                            <ProtectedRoute>
+                                <SleepUpload />
+                            </ProtectedRoute>
+                        } />
+                        <Route path="/history" element={
+                            <ProtectedRoute>
+                                <SleepHistory />
+                            </ProtectedRoute>
+                        } />
+                        <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
+                    </Routes>
+                </main>
+            </div>
+        </Router>
     );
 }
 

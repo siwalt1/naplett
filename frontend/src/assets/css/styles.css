@@ -1,0 +1,178 @@
+/* Custom variables */
+:root {
+    --naplett-primary: #4361ee;
+    --naplett-secondary: #3a0ca3;
+    --naplett-success: #4cc9f0;
+    --naplett-info: #4895ef;
+    --naplett-warning: #f72585;
+    --naplett-danger: #7209b7;
+}
+
+/* Override Bootstrap primary color */
+.btn-primary, .bg-primary {
+    background-color: var(--naplett-primary) !important;
+    border-color: var(--naplett-primary) !important;
+}
+
+.btn-outline-primary {
+    color: var(--naplett-primary) !important;
+    border-color: var(--naplett-primary) !important;
+}
+
+.btn-outline-primary:hover {
+    background-color: var(--naplett-primary) !important;
+    color: white !important;
+}
+
+.text-primary {
+    color: var(--naplett-primary) !important;
+}
+
+.border-primary {
+    border-color: var(--naplett-primary) !important;
+}
+
+/* Icon circles for consistent icon styling */
+.icon-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-circle i {
+    font-size: 1.2rem;
+}
+
+/* Custom upload area styling */
+.upload-area {
+    border: 2px dashed #dee2e6;
+    border-radius: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.upload-area:hover, .upload-area.dragActive {
+    border-color: var(--naplett-primary);
+    background-color: rgba(67, 97, 238, 0.05);
+}
+
+/* Card hover effects */
+.card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card.clickable:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+    cursor: pointer;
+}
+
+/* Navbar.js styles */
+.navbar-brand {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+/* Dashboard styles */
+.dashboard .card {
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+/* Insights list styling */
+.list-group-item-action:hover {
+    background-color: rgba(67, 97, 238, 0.05);
+}
+
+/* Sleep score badge styling */
+.sleep-score-badge {
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding: 0.35rem 0.75rem;
+    border-radius: 1rem;
+}
+
+/* Animation for loading elements */
+@keyframes pulse {
+    0% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.6;
+    }
+}
+
+.loading-pulse {
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+/* Trend indicator styling */
+.trend-indicator {
+    display: inline-flex;
+    align-items: center;
+    font-weight: 500;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+}
+
+.trend-up {
+    background-color: rgba(25, 135, 84, 0.1);
+    color: #198754;
+}
+
+.trend-down {
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+}
+
+.trend-neutral {
+    background-color: rgba(108, 117, 125, 0.1);
+    color: #6c757d;
+}
+
+/* Responsive adjustments */
+@media (max-width: 767.98px) {
+    .icon-circle {
+        width: 32px;
+        height: 32px;
+    }
+
+    .icon-circle i {
+        font-size: 1rem;
+    }
+
+    h2.h3 {
+        font-size: 1.5rem;
+    }
+
+    .sleep-score-badge {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.5rem;
+    }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}

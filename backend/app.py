@@ -1,236 +1,336 @@
-import os
-import time
-from datetime import datetime
-import numpy as np
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_login import LoginManager, login_user, login_required, logout_user, current_user
-from sqlalchemy.exc import OperationalError
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from dotenv import load_dotenv
-from flask_migrate import Migrate
+import os
+from datetime import datetime, timedelta
 
-from models import db, User, SleepData
+from models import db, User, SleepRecord, Baseline, Trend, Insight
+from services.data_import import process_oura_import
+from services.analysis import calculate_sleep_score, calculate_baseline, calculate_trends, generate_insights
 
-load_dotenv()
+# Initialize Flask app
 app = Flask(__name__)
-database_url = os.getenv('DATABASE_URL')
-if not database_url:
-    raise ValueError("DATABASE_URL environment variable is not set")
-
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_testing')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///naplett.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key')
-CORS(app, supports_credentials=True)
-db.init_app(app)
-migrate = Migrate(app, db)
 
+# Initialize extensions
+CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+
+db.init_app(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
 
+# User loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    return User.query.get(int(user_id))
 
-@app.route('/')
+# Create database tables
+@app.before_first_request
+def create_tables():
+    db.create_all()
+
+# Routes
+@app.route('/api/health')
 def health_check():
-    return jsonify({'status': 'ok'}), 200
+    return jsonify({'status': 'healthy'}), 200
 
-with app.app_context():
-    retries = 5
-    while retries > 0:
-        try:
-            db.create_all()
-            break
-        except OperationalError as e:
-            print(f"Failed to connect to database: {e}")
-            retries -= 1
-            if retries == 0:
-                raise
-            print(f"Retrying in 5 seconds... ({retries} attempts left)")
-            time.sleep(5)
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
-def calculate_sleep_score(data):
-    # Extract data
-    total_sleep = data['total_sleep_duration']
-    deep_sleep = data['deep_sleep_duration']
-    rem_sleep = data['rem_sleep_duration']
-    efficiency = data['efficiency']
-    restless_periods = data['restless_periods']
-    sleep_midpoint = datetime.fromisoformat(data['sleep_midpoint'].replace('Z', '+00:00'))
-    lowest_hr = data['lowest_heart_rate']
-    average_hrv = data['average_hrv']
-    resting_hr = data['resting_heart_rate']
-
-    # 1. Sleep Duration Score (25%)
-    optimal_sleep = 480  # 8 hours in minutes
-    duration_score = min(100, max(0, 100 - (abs(total_sleep - optimal_sleep) / optimal_sleep) * 100))
-
-    # 2. Sleep Architecture Score (25%)
-    if total_sleep > 0:
-        deep_pct = deep_sleep / total_sleep
-        rem_pct = rem_sleep / total_sleep
-        deep_score = max(0, min(100, 100 - 200 * abs(0.20 - deep_pct)))
-        rem_score = max(0, min(100, 100 - 200 * abs(0.23 - rem_pct)))
-        architecture_score = (deep_score * 0.5) + (rem_score * 0.5)
-    else:
-        architecture_score = 0
-
-    # 3. Sleep Efficiency & Continuity Score (20%)
-    efficiency_score = min(100, max(0, efficiency))
-    continuity_penalty = min(50, restless_periods * 5)  # Up to 50% penalty
-    efficiency_continuity_score = max(0, efficiency_score - continuity_penalty)
-
-    # 4. Sleep Timing & Consistency Score (15%) - Simplified
-    optimal_midpoint = sleep_midpoint.replace(hour=3, minute=0, second=0)
-    time_diff = abs((sleep_midpoint - optimal_midpoint).total_seconds()) / 3600  # Hours
-    timing_score = max(0, 100 - (time_diff * 20))  # Lose 20 points per hour deviation
-
-    # 5. Physiological Signals Score (15%) - Simplified
-    hr_dip = resting_hr - lowest_hr if resting_hr and lowest_hr else 0
-    hr_score = min(100, max(0, hr_dip * 5))  # 5 points per bpm dip, max 100
-    hrv_score = min(100, average_hrv or 0) if average_hrv else 50  # Default 50 if null
-    physiological_score = (hr_score * 0.6) + (hrv_score * 0.4)
-
-    # Total Sleep Score
-    total_score = (
-        0.25 * duration_score +
-        0.25 * architecture_score +
-        0.20 * efficiency_continuity_score +
-        0.15 * timing_score +
-        0.15 * physiological_score
-    )
-
-    return {
-        'total_score': round(total_score, 2),
-        'components': {
-            'duration_score': round(duration_score, 2),
-            'architecture_score': round(architecture_score, 2),
-            'efficiency_continuity_score': round(efficiency_continuity_score, 2),
-            'timing_score': round(timing_score, 2),
-            'physiological_score': round(physiological_score, 2)
-        }
-    }
-
-@app.route('/register', methods=['POST'])
+# Authentication routes
+@app.route('/api/auth/register', methods=['POST'])
 def register():
     data = request.json
-    if User.query.filter_by(username=data['username']).first():
-        return jsonify({'error': 'Username exists'}), 400
-    user = User(username=data['username'], password=generate_password_hash(data['password']))
-    db.session.add(user)
+
+    if not data or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'error': 'Email already registered'}), 400
+
+    hashed_password = generate_password_hash(data['password'])
+    new_user = User(
+        email=data['email'],
+        password=hashed_password,
+        first_name=data.get('first_name'),
+        last_name=data.get('last_name')
+    )
+
+    db.session.add(new_user)
     db.session.commit()
-    login_user(user)
-    return jsonify({'message': 'Registered successfully'})
 
-@app.route('/login', methods=['GET', 'POST'])
+    login_user(new_user)
+
+    return jsonify({
+        'message': 'User registered successfully',
+        'user_id': new_user.id
+    }), 201
+
+@app.route('/api/auth/login', methods=['POST'])
 def login():
-    if request.method == 'POST':
-        data = request.json
-        user = User.query.filter_by(username=data['username']).first()
-        if user and check_password_hash(user.password, data['password']):
-            login_user(user)
-            return jsonify({'message': 'Logged in'})
-        return jsonify({'error': 'Invalid credentials'}), 401
-    return jsonify({'error': 'Use POST to login'}), 405
+    data = request.json
 
-@app.route('/logout')
+    if not data or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    user = User.query.filter_by(email=data['email']).first()
+
+    if not user or not check_password_hash(user.password, data['password']):
+        return jsonify({'error': 'Invalid credentials'}), 401
+
+    login_user(user)
+    user.last_login = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Logged in successfully',
+        'user_id': user.id
+    }), 200
+
+@app.route('/api/auth/logout')
 @login_required
 def logout():
     logout_user()
-    return jsonify({'message': 'Logged out'})
+    return jsonify({'message': 'Logged out successfully'}), 200
 
-@app.route('/sleep', methods=['POST'])
+@app.route('/api/user/profile')
 @login_required
-def add_sleep():
-    data = request.json
+def get_profile():
+    return jsonify({
+        'id': current_user.id,
+        'email': current_user.email,
+        'first_name': current_user.first_name,
+        'last_name': current_user.last_name,
+        'created_at': current_user.created_at.isoformat(),
+        'last_login': current_user.last_login.isoformat() if current_user.last_login else None
+    }), 200
+
+# Data upload route
+@app.route('/api/sleep/upload', methods=['POST'])
+@login_required
+def upload_sleep_data():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    # Process the uploaded Oura data
     try:
-        date_obj = datetime.strptime(data['sleep_metrics']['bedtime_start'][:10], '%Y-%m-%d').date()
-        sleep_midpoint = datetime.fromisoformat(data['sleep_metrics']['sleep_midpoint'].replace('Z', '+00:00'))
-        bedtime_start = datetime.fromisoformat(data['sleep_metrics']['bedtime_start'].replace('Z', '+00:00'))
-        bedtime_end = datetime.fromisoformat(data['sleep_metrics']['bedtime_end'].replace('Z', '+00:00'))
-    except (ValueError, KeyError) as e:
-        return jsonify({'error': 'Invalid date format or missing fields'}), 400
+        records_processed = process_oura_import(current_user.id, file)
 
-    sleep_data = {**data['sleep_metrics'], **data['physiological_metrics']}
-    score_data = calculate_sleep_score(sleep_data)
+        # Calculate sleep scores for new data
+        baseline = Baseline.query.filter_by(user_id=current_user.id).order_by(Baseline.updated_at.desc()).first()
+        for record in records_processed:
+            sleep_score_data = calculate_sleep_score(record, baseline)
+            record.sleep_score = sleep_score_data['total_score']
+            record.sleep_score_components = sleep_score_data['components']
 
-    sleep = SleepData(
-        user_id=current_user.id,
-        date=date_obj,
-        sleep_score=score_data['total_score'],
-        total_sleep_duration=sleep_data['total_sleep_duration'],
-        deep_sleep_duration=sleep_data['deep_sleep_duration'],
-        rem_sleep_duration=sleep_data['rem_sleep_duration'],
-        efficiency=sleep_data['efficiency'],
-        restless_periods=sleep_data['restless_periods'],
-        sleep_midpoint=sleep_midpoint,
-        bedtime_start=bedtime_start,
-        bedtime_end=bedtime_end,
-        lowest_heart_rate=sleep_data['lowest_heart_rate'],
-        average_hrv=sleep_data['average_hrv'],
-        resting_heart_rate=sleep_data['resting_heart_rate'],
-        respiratory_rate=sleep_data['respiratory_rate']
-    )
-    db.session.add(sleep)
-    db.session.commit()
-    return jsonify({'message': 'Sleep data added', 'sleep_score': score_data['total_score']})
-
-@app.route('/sleep', methods=['GET'])
-@login_required
-def get_sleep():
-    sleep_data = db.session.execute(db.select(SleepData).filter_by(user_id=current_user.id)).scalars().all()
-    enriched_data = []
-    for d in sleep_data:
-        # Recalculate components for each entry
-        sleep_metrics = {
-            'total_sleep_duration': d.total_sleep_duration,
-            'deep_sleep_duration': d.deep_sleep_duration,
-            'rem_sleep_duration': d.rem_sleep_duration,
-            'efficiency': d.efficiency,
-            'restless_periods': d.restless_periods,
-            'sleep_midpoint': d.sleep_midpoint.isoformat(),
-            'bedtime_start': d.bedtime_start.isoformat(),
-            'bedtime_end': d.bedtime_end.isoformat(),
-            'lowest_heart_rate': d.lowest_heart_rate,
-            'average_hrv': d.average_hrv,
-            'resting_heart_rate': d.resting_heart_rate,
-            'respiratory_rate': d.respiratory_rate
-        }
-        score_data = calculate_sleep_score(sleep_metrics)
-        enriched_data.append({
-            'date': d.date.isoformat(),
-            'sleep_score': d.sleep_score,
-            'total_sleep_duration': d.total_sleep_duration,
-            'deep_sleep_duration': d.deep_sleep_duration,
-            'rem_sleep_duration': d.rem_sleep_duration,
-            'efficiency': d.efficiency,
-            'restless_periods': d.restless_periods,
-            'sleep_midpoint': d.sleep_midpoint.isoformat(),
-            'bedtime_start': d.bedtime_start.isoformat(),
-            'bedtime_end': d.bedtime_end.isoformat(),
-            'lowest_heart_rate': d.lowest_heart_rate,
-            'average_hrv': d.average_hrv,
-            'resting_heart_rate': d.resting_heart_rate,
-            'respiratory_rate': d.respiratory_rate,
-            'score_components': score_data['components']
-        })
-    return jsonify({'sleep_data': enriched_data})
-
-
-@app.route('/sleep', methods=['DELETE'])
-@login_required
-def delete_all_sleep():
-    try:
-        # Delete all SleepData entries for the current user
-        db.session.execute(db.delete(SleepData).filter_by(user_id=current_user.id))
         db.session.commit()
-        return jsonify({'message': 'All sleep data deleted successfully'})
+
+        # Calculate baselines and trends (could be moved to background task)
+        calculate_baseline(current_user.id)
+        calculate_trends(current_user.id)
+        generate_insights(current_user.id)
+
+        return jsonify({
+            'message': 'Data uploaded successfully',
+            'records_processed': len(records_processed)
+        }), 200
+
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Error deleting sleep data: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
+
+# Sleep data routes
+@app.route('/api/sleep/records')
+@login_required
+def get_sleep_records():
+    # Optional date range filtering
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    query = SleepRecord.query.filter_by(user_id=current_user.id)
+
+    if start_date:
+        query = query.filter(SleepRecord.record_date >= start_date)
+    if end_date:
+        query = query.filter(SleepRecord.record_date <= end_date)
+
+    # Order by date, newest first
+    records = query.order_by(SleepRecord.record_date.desc()).all()
+
+    return jsonify({
+        'records': [{
+            'id': record.id,
+            'date': record.record_date.isoformat(),
+            'total_sleep_duration': record.total_sleep_duration,
+            'deep_sleep_duration': record.deep_sleep_duration,
+            'rem_sleep_duration': record.rem_sleep_duration,
+            'light_sleep_duration': record.light_sleep_duration,
+            'efficiency': record.efficiency,
+            'bedtime_start': record.bedtime_start.isoformat(),
+            'bedtime_end': record.bedtime_end.isoformat(),
+            'sleep_score': record.sleep_score,
+            'sleep_score_components': record.sleep_score_components
+        } for record in records]
+    }), 200
+
+@app.route('/api/sleep/baseline')
+@login_required
+def get_baseline():
+    baseline = Baseline.query.filter_by(
+        user_id=current_user.id
+    ).order_by(Baseline.updated_at.desc()).first()
+
+    if not baseline:
+        return jsonify({'error': 'No baseline available yet'}), 404
+
+    return jsonify({
+        'id': baseline.id,
+        'type': baseline.baseline_type,
+        'start_date': baseline.start_date.isoformat(),
+        'end_date': baseline.end_date.isoformat(),
+        'updated_at': baseline.updated_at.isoformat(),
+        'metrics': {
+            'avg_total_sleep': baseline.avg_total_sleep,
+            'avg_deep_sleep': baseline.avg_deep_sleep,
+            'avg_rem_sleep': baseline.avg_rem_sleep,
+            'avg_light_sleep': baseline.avg_light_sleep,
+            'avg_efficiency': baseline.avg_efficiency,
+            'avg_hrv': baseline.avg_hrv,
+            'avg_resting_hr': baseline.avg_resting_hr,
+            'avg_respiratory_rate': baseline.avg_respiratory_rate
+        }
+    }), 200
+
+@app.route('/api/sleep/trends')
+@login_required
+def get_trends():
+    trend_type = request.args.get('type', 'weekly')
+
+    trend = Trend.query.filter_by(
+        user_id=current_user.id,
+        trend_type=trend_type
+    ).order_by(Trend.period_end.desc()).first()
+
+    if not trend:
+        return jsonify({'error': f'No {trend_type} trend available yet'}), 404
+
+    return jsonify({
+        'id': trend.id,
+        'type': trend.trend_type,
+        'period_start': trend.period_start.isoformat(),
+        'period_end': trend.period_end.isoformat(),
+        'metrics': {
+            'total_sleep_trend': trend.total_sleep_trend,
+            'deep_sleep_trend': trend.deep_sleep_trend,
+            'rem_sleep_trend': trend.rem_sleep_trend,
+            'efficiency_trend': trend.efficiency_trend,
+            'hrv_trend': trend.hrv_trend,
+            'resting_hr_trend': trend.resting_hr_trend,
+            'sleep_score_trend': trend.sleep_score_trend
+        }
+    }), 200
+
+@app.route('/api/sleep/insights')
+@login_required
+def get_insights():
+    insights = Insight.query.filter_by(
+        user_id=current_user.id,
+        dismissed=False
+    ).order_by(
+        Insight.importance.desc(),
+        Insight.created_at.desc()
+    ).limit(10).all()
+
+    return jsonify({
+        'insights': [{
+            'id': insight.id,
+            'type': insight.insight_type,
+            'title': insight.title,
+            'description': insight.description,
+            'importance': insight.importance,
+            'created_at': insight.created_at.isoformat(),
+            'read': insight.read
+        } for insight in insights]
+    }), 200
+
+@app.route('/api/sleep/dashboard')
+@login_required
+def get_dashboard():
+    # Get latest sleep record
+    latest_sleep = SleepRecord.query.filter_by(
+        user_id=current_user.id
+    ).order_by(SleepRecord.record_date.desc()).first()
+
+    # Get current baseline
+    baseline = Baseline.query.filter_by(
+        user_id=current_user.id
+    ).order_by(Baseline.updated_at.desc()).first()
+
+    # Get latest trends
+    weekly_trend = Trend.query.filter_by(
+        user_id=current_user.id,
+        trend_type='weekly'
+    ).order_by(Trend.period_end.desc()).first()
+
+    # Get top insights
+    insights = Insight.query.filter_by(
+        user_id=current_user.id,
+        dismissed=False
+    ).order_by(
+        Insight.importance.desc(),
+        Insight.created_at.desc()
+    ).limit(5).all()
+
+    # Calculate sleep record count
+    record_count = SleepRecord.query.filter_by(user_id=current_user.id).count()
+
+    # Check if we're still in calibration mode (less than 14 days of data)
+    calibration_status = {
+        'in_progress': record_count < 14,
+        'days_complete': min(record_count, 14),
+        'days_needed': 14
+    }
+
+    return jsonify({
+        'latest_sleep': {
+            'date': latest_sleep.record_date.isoformat() if latest_sleep else None,
+            'sleep_score': latest_sleep.sleep_score if latest_sleep else None,
+            'total_sleep_duration': latest_sleep.total_sleep_duration if latest_sleep else None,
+            'efficiency': latest_sleep.efficiency if latest_sleep else None
+        } if latest_sleep else None,
+        'baseline': {
+            'avg_total_sleep': baseline.avg_total_sleep,
+            'avg_efficiency': baseline.avg_efficiency,
+            'avg_hrv': baseline.avg_hrv,
+            'avg_deep_sleep': baseline.avg_deep_sleep,
+            'avg_rem_sleep': baseline.avg_rem_sleep
+        } if baseline else None,
+        'trends': {
+            'sleep_score_trend': weekly_trend.sleep_score_trend,
+            'total_sleep_trend': weekly_trend.total_sleep_trend,
+            'deep_sleep_trend': weekly_trend.deep_sleep_trend,
+            'hrv_trend': weekly_trend.hrv_trend
+        } if weekly_trend else None,
+        'insights': [{
+            'id': insight.id,
+            'title': insight.title,
+            'description': insight.description,
+            'importance': insight.importance
+        } for insight in insights],
+        'calibration_status': calibration_status,
+        'record_count': record_count
+    }), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, host='0.0.0.0')
