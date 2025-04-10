@@ -111,158 +111,155 @@ def calculate_sleep_score(sleep_record, user_baselines=None):
             'physiological_score': round(physio_score, 1)
         }
     }
-# def calculate_baseline(user_id):
-#     """
-#     Calculate baseline metrics from the last 14 days of sleep data
-#
-#     Args:
-#         user_id: The user ID to calculate baseline for
-#
-#     Returns:
-#         Baseline: The calculated baseline object
-#     """
-#     # Get the last 14 days of sleep records
-#     end_date = db.session.query(func.max(SleepRecord.record_date)).filter_by(user_id=user_id).scalar()
-#
-#     if not end_date:
-#         return None
-#
-#     start_date = end_date - timedelta(days=13)  # 14 days including end_date
-#
-#     records = SleepRecord.query.filter(
-#         SleepRecord.user_id == user_id,
-#         SleepRecord.record_date >= start_date,
-#         SleepRecord.record_date <= end_date
-#     ).order_by(SleepRecord.record_date.asc()).all()
-#
-#     # Need at least 7 days for a meaningful baseline
-#     if len(records) < 7:
-#         return None
-#
-#     # Calculate averages
-#     avg_total_sleep = sum(r.total_sleep_duration for r in records) / len(records)
-#     avg_deep_sleep = sum(r.deep_sleep_duration for r in records) / len(records)
-#     avg_rem_sleep = sum(r.rem_sleep_duration for r in records) / len(records)
-#     avg_light_sleep = sum(r.light_sleep_duration for r in records) / len(records)
-#     avg_efficiency = sum(r.efficiency for r in records) / len(records)
-#
-#     # Calculate physiological baselines if data exists
-#     hrv_values = [r.average_hrv for r in records if r.average_hrv is not None]
-#     rhr_values = [r.resting_heart_rate for r in records if r.resting_heart_rate is not None]
-#     resp_values = [r.respiratory_rate for r in records if r.respiratory_rate is not None]
-#
-#     avg_hrv = sum(hrv_values) / len(hrv_values) if hrv_values else None
-#     avg_rhr = sum(rhr_values) / len(rhr_values) if rhr_values else None
-#     avg_resp = sum(resp_values) / len(resp_values) if resp_values else None
-#
-#     # Calculate average bedtime (convert to time only)
-#     start_times = [r.bedtime_start.time() for r in records]
-#     end_times = [r.bedtime_end.time() for r in records]
-#
-#     # Convert to minutes since midnight for averaging
-#     start_minutes = [(t.hour * 60 + t.minute) for t in start_times]
-#     end_minutes = [(t.hour * 60 + t.minute) for t in end_times]
-#
-#     # Adjust for bed times that cross midnight
-#     for i in range(len(start_minutes)):
-#         if start_minutes[i] > 1080:  # After 6 PM (18 * 60)
-#             start_minutes[i] = start_minutes[i] - 1440  # Convert to negative minutes from midnight
-#
-#     for i in range(len(end_minutes)):
-#         if end_minutes[i] < 360:  # Before 6 AM
-#             end_minutes[i] = end_minutes[i] + 1440  # Add 24 hours
-#
-#     avg_start_minutes = sum(start_minutes) / len(start_minutes)
-#     avg_end_minutes = sum(end_minutes) / len(end_minutes)
-#
-#     # Calculate average midpoint
-#     midpoints = []
-#     for record in records:
-#         if record.sleep_midpoint:
-#             midpoint = record.sleep_midpoint.time()
-#             midpoint_minutes = midpoint.hour * 60 + midpoint.minute
-#
-#             # Adjust for midnight crossing
-#             if midpoint.hour < 12:  # If midnight is after midpoint
-#                 midpoint_minutes += 1440
-#
-#             midpoints.append(midpoint_minutes)
-#
-#     avg_midpoint_minutes = sum(midpoints) / len(midpoints) if midpoints else None
-#
-#     # Convert back to time objects
-#     if avg_start_minutes < 0:
-#         avg_start_minutes += 1440
-#
-#     avg_start_time = (datetime.min + timedelta(minutes=avg_start_minutes)).time()
-#     avg_end_time = (datetime.min + timedelta(minutes=avg_end_minutes % 1440)).time()
-#
-#     avg_midpoint_time = None
-#     if avg_midpoint_minutes:
-#         avg_midpoint_minutes = avg_midpoint_minutes % 1440  # Ensure within 24-hour range
-#         avg_midpoint_time = (datetime.min + timedelta(minutes=avg_midpoint_minutes)).time()
-#
-#     # Create or update baseline object
-#     baseline = Baseline.query.filter_by(
-#         user_id=user_id,
-#         baseline_type='14-day'
-#     ).first()
-#
-#     if not baseline:
-#         baseline = Baseline(
-#             user_id=user_id,
-#             baseline_type='14-day',
-#             start_date=start_date,
-#             end_date=end_date
-#         )
-#         db.session.add(baseline)
-#     else:
-#         baseline.start_date = start_date
-#         baseline.end_date = end_date
-#         baseline.updated_at = datetime.utcnow()
-#
-#     # Update baseline metrics
-#     baseline.avg_total_sleep = avg_total_sleep
-#     baseline.avg_deep_sleep = avg_deep_sleep
-#     baseline.avg_rem_sleep = avg_rem_sleep
-#     baseline.avg_light_sleep = avg_light_sleep
-#     baseline.avg_efficiency = avg_efficiency
-#     baseline.avg_hrv = avg_hrv
-#     baseline.avg_resting_hr = avg_rhr
-#     baseline.avg_respiratory_rate = avg_resp
-#     baseline.avg_bedtime_start = avg_start_time
-#     baseline.avg_bedtime_end = avg_end_time
-#     baseline.avg_midpoint = avg_midpoint_time
-#
-#     db.session.commit()
-#
-#     return baseline
-def calculate_baseline(user_id):
+
+def calculate_baseline(user_id, process_all_data=False):
     """
-    Calculate baseline metrics from the last 14 days of sleep data
+    Calculate baseline metrics from sleep data
 
     Args:
         user_id: The user ID to calculate baseline for
+        process_all_data: Whether to process all historical data or just recent data
 
     Returns:
         Baseline: The calculated baseline object
     """
-    # Get the last 14 days of sleep records
-    end_date = db.session.query(func.max(SleepRecord.record_date)).filter_by(user_id=user_id).scalar()
-
-    if not end_date:
-        return None
-
-    start_date = end_date - timedelta(days=13)  # 14 days including end_date
-
-    records = SleepRecord.query.filter(
-        SleepRecord.user_id == user_id,
-        SleepRecord.record_date >= start_date,
-        SleepRecord.record_date <= end_date
-    ).order_by(SleepRecord.record_date.asc()).all()
+    # Get all sleep records for the user, ordered by date
+    records = SleepRecord.query.filter_by(user_id=user_id).order_by(SleepRecord.record_date.asc()).all()
 
     # Need at least 7 days for a meaningful baseline
     if len(records) < 7:
+        return None
+
+    # Get the most recent baseline
+    latest_baseline = Baseline.query.filter_by(user_id=user_id).order_by(Baseline.end_date.desc()).first()
+
+    # If we're not processing all data and we already have a baseline,
+    # only calculate if it's been at least 7 days since the last baseline
+    if not process_all_data and latest_baseline:
+        latest_date = records[-1].record_date
+        days_since_baseline = (latest_date - latest_baseline.end_date).days
+
+        if days_since_baseline < 7:
+            return latest_baseline
+
+    # Define baselines to create
+    baselines_to_create = []
+
+    # Process all historical data in 7-day increments
+    if process_all_data and len(records) >= 14:
+        # Start from the first 14 days
+        start_idx = 0
+        end_idx = 13  # First 14 days (0-13 inclusive)
+
+        while end_idx < len(records):
+            current_period = records[start_idx:end_idx+1]
+            end_date = current_period[-1].record_date
+            start_date = current_period[0].record_date
+
+            # Calculate baseline for this period
+            baseline_data = calculate_baseline_metrics(current_period)
+
+            if baseline_data:
+                # Check if we already have a baseline for this end date
+                existing = Baseline.query.filter_by(
+                    user_id=user_id,
+                    end_date=end_date
+                ).first()
+
+                if not existing:
+                    # Create new baseline object
+                    baseline = Baseline(
+                        user_id=user_id,
+                        baseline_type='14-day',
+                        start_date=start_date,
+                        end_date=end_date,
+                        **baseline_data
+                    )
+                    baselines_to_create.append(baseline)
+
+            # Move forward 7 days
+            start_idx += 7
+            end_idx += 7
+
+            # Adjust end_idx if we don't have enough data
+            if end_idx >= len(records):
+                end_idx = len(records) - 1
+
+            # If we have less than 14 days but at least 7, use what we have
+            if end_idx - start_idx + 1 < 14 and end_idx - start_idx + 1 >= 7:
+                current_period = records[start_idx:end_idx+1]
+            elif end_idx - start_idx + 1 < 7:
+                # Not enough data for a new period
+                break
+
+    # For normal operation, just calculate the latest baseline if needed
+    elif len(records) >= 14:
+        # Use the last 14 days of data
+        current_period = records[-14:]
+        end_date = current_period[-1].record_date
+        start_date = current_period[0].record_date
+
+        # Calculate baseline metrics
+        baseline_data = calculate_baseline_metrics(current_period)
+
+        if baseline_data:
+            # Check if we already have a baseline for this end date
+            existing = Baseline.query.filter_by(
+                user_id=user_id,
+                end_date=end_date
+            ).first()
+
+            if not existing:
+                # Create new baseline object
+                baseline = Baseline(
+                    user_id=user_id,
+                    baseline_type='14-day',
+                    start_date=start_date,
+                    end_date=end_date,
+                    **baseline_data
+                )
+                baselines_to_create.append(baseline)
+
+    # Handle sparse data case: if we have 3-6 days since last baseline
+    elif latest_baseline and len(records) >= 7:
+        latest_end_date = records[-1].record_date
+        days_since_baseline = (latest_end_date - latest_baseline.end_date).days
+
+        if 3 <= days_since_baseline < 7:
+            # Get records since last baseline
+            new_records = [r for r in records if r.record_date > latest_baseline.end_date]
+
+            if len(new_records) >= 3:
+                # Calculate metrics for new records
+                new_metrics = calculate_baseline_metrics(new_records)
+
+                if new_metrics:
+                    # Average with previous baseline
+                    averaged_metrics = average_baseline_metrics(latest_baseline, new_metrics)
+
+                    # Create new baseline
+                    baseline = Baseline(
+                        user_id=user_id,
+                        baseline_type='averaged',
+                        start_date=latest_baseline.start_date,
+                        end_date=latest_end_date,
+                        **averaged_metrics
+                    )
+                    baselines_to_create.append(baseline)
+
+    # Save all baselines to the database
+    for baseline in baselines_to_create:
+        db.session.add(baseline)
+
+    db.session.commit()
+
+    # Return the most recent baseline
+    return Baseline.query.filter_by(user_id=user_id).order_by(Baseline.end_date.desc()).first()
+
+
+def calculate_baseline_metrics(records):
+    """Calculate baseline metrics from a list of sleep records"""
+    if not records or len(records) < 3:
         return None
 
     # Calculate averages
@@ -281,11 +278,77 @@ def calculate_baseline(user_id):
     avg_rhr = sum(rhr_values) / len(rhr_values) if rhr_values else None
     avg_resp = sum(resp_values) / len(resp_values) if resp_values else None
 
-    # Calculate average bedtime (convert to time only)
-    start_times = [r.bedtime_start.time() for r in records]
-    end_times = [r.bedtime_end.time() for r in records]
+    # Calculate bedtime averages
+    bedtime_results = calculate_average_sleep_times(records)
 
-    # Convert to minutes since midnight for averaging
+    return {
+        'avg_total_sleep': avg_total_sleep,
+        'avg_deep_sleep': avg_deep_sleep,
+        'avg_rem_sleep': avg_rem_sleep,
+        'avg_light_sleep': avg_light_sleep,
+        'avg_efficiency': avg_efficiency,
+        'avg_hrv': avg_hrv,
+        'avg_resting_hr': avg_rhr,
+        'avg_respiratory_rate': avg_resp,
+        'avg_bedtime_start': bedtime_results.get('avg_start_time'),
+        'avg_bedtime_end': bedtime_results.get('avg_end_time'),
+        'avg_midpoint': bedtime_results.get('avg_midpoint_time')
+    }
+
+
+def average_baseline_metrics(baseline, new_metrics):
+    """Average the metrics from an existing baseline with new metrics"""
+    averaged = {}
+
+    # Weight based on the length of data (assuming baseline represents 14 days)
+    baseline_weight = 0.8  # Give more weight to the established baseline
+    new_weight = 0.2  # Less weight to the sparse new data
+
+    # Average all numeric fields
+    for key in new_metrics:
+        if key.startswith('avg_') and isinstance(new_metrics[key], (int, float)) and getattr(baseline, key) is not None:
+            averaged[key] = (getattr(baseline, key) * baseline_weight) + (new_metrics[key] * new_weight)
+
+    # Handle time fields separately
+    for time_field in ['avg_bedtime_start', 'avg_bedtime_end', 'avg_midpoint']:
+        if new_metrics[time_field] and getattr(baseline, time_field):
+            # Convert times to minutes for averaging
+            baseline_time = getattr(baseline, time_field)
+            new_time = new_metrics[time_field]
+
+            baseline_minutes = baseline_time.hour * 60 + baseline_time.minute
+            new_minutes = new_time.hour * 60 + new_time.minute
+
+            # Handle midnight crossing
+            if abs(baseline_minutes - new_minutes) > 720:
+                if baseline_minutes > new_minutes:
+                    new_minutes += 1440
+                else:
+                    baseline_minutes += 1440
+
+            # Weighted average
+            avg_minutes = (baseline_minutes * baseline_weight) + (new_minutes * new_weight)
+            avg_minutes = avg_minutes % 1440  # Ensure within a 24-hour range
+
+            # Convert back to time
+            averaged[time_field] = (datetime.min + timedelta(minutes=avg_minutes)).time()
+        else:
+            # If either time is missing, use the one that exists
+            averaged[time_field] = getattr(baseline, time_field) or new_metrics[time_field]
+
+    return averaged
+
+
+def calculate_average_sleep_times(records):
+    """Calculate average bedtime, wake time, and midpoint"""
+    # Extract sleep timing
+    start_times = [r.bedtime_start.time() for r in records if r.bedtime_start]
+    end_times = [r.bedtime_end.time() for r in records if r.bedtime_end]
+
+    if not start_times or not end_times:
+        return {}
+
+    # Convert to minutes since midnight
     start_minutes = [(t.hour * 60 + t.minute) for t in start_times]
     end_minutes = [(t.hour * 60 + t.minute) for t in end_times]
 
@@ -328,41 +391,12 @@ def calculate_baseline(user_id):
         avg_midpoint_minutes = avg_midpoint_minutes % 1440  # Ensure within 24-hour range
         avg_midpoint_time = (datetime.min + timedelta(minutes=avg_midpoint_minutes)).time()
 
-    # Create or update baseline object
-    baseline = Baseline.query.filter_by(
-        user_id=user_id,
-        baseline_type='14-day'
-    ).first()
+    return {
+        'avg_start_time': avg_start_time,
+        'avg_end_time': avg_end_time,
+        'avg_midpoint_time': avg_midpoint_time
+    }
 
-    if not baseline:
-        baseline = Baseline(
-            user_id=user_id,
-            baseline_type='14-day',
-            start_date=start_date,
-            end_date=end_date
-        )
-        db.session.add(baseline)
-    else:
-        baseline.start_date = start_date
-        baseline.end_date = end_date
-        baseline.updated_at = datetime.utcnow()
-
-    # Update baseline metrics
-    baseline.avg_total_sleep = avg_total_sleep
-    baseline.avg_deep_sleep = avg_deep_sleep
-    baseline.avg_rem_sleep = avg_rem_sleep
-    baseline.avg_light_sleep = avg_light_sleep
-    baseline.avg_efficiency = avg_efficiency
-    baseline.avg_hrv = avg_hrv
-    baseline.avg_resting_hr = avg_rhr
-    baseline.avg_respiratory_rate = avg_resp
-    baseline.avg_bedtime_start = avg_start_time
-    baseline.avg_bedtime_end = avg_end_time
-    baseline.avg_midpoint = avg_midpoint_time
-
-    db.session.commit()
-
-    return baseline
 def calculate_trends(user_id):
     """
     Calculate weekly and monthly trends compared to previous periods
@@ -626,7 +660,7 @@ def generate_insights(user_id):
             user_id=user_id,
             insight_type='recommendation',
             title='Deep sleep decrease',
-            description='Your deep sleep is lower than usual. Deep sleep is essential for physical recovery. Consider limiting alcohol before bed and ensuring your room is cool and dark.',
+            description='Your deep sleep is lower than usual. Deep sleep is essential for physical recovery. Consider keeping your bedroom cool and dark for optimal sleep conditions.',
             importance=3,
             related_metric='deep_sleep_duration'
         )
@@ -639,7 +673,7 @@ def generate_insights(user_id):
             user_id=user_id,
             insight_type='recommendation',
             title='REM sleep decrease',
-            description='Your REM sleep is lower than usual. REM sleep supports learning and emotional regulation. Try reducing screen time before bed and manage stress with relaxation techniques.',
+            description='Your REM sleep is lower than usual. REM sleep supports learning and emotional regulation. Try reducing screen time before bed and practice relaxation techniques for better sleep quality.',
             importance=3,
             related_metric='rem_sleep_duration'
         )
@@ -764,7 +798,7 @@ def generate_baseline_insights(user_id, current_baseline, previous_baseline):
             title=f'Deep sleep percentage has {direction}',
             description=f'Your deep sleep percentage has {direction} by {abs(round(deep_sleep_change))}% compared to your previous baseline. ' +
                         (f'This is positive! Deep sleep is crucial for physical recovery and memory consolidation.' if deep_sleep_change > 0 else
-                         f'Deep sleep is crucial for physical recovery. Consider limiting alcohol and caffeine, and ensuring your bedroom is cool and dark.'),
+                         f'Deep sleep is crucial for physical recovery. Consider creating a cooler sleep environment and establishing a consistent bedtime routine.'),
             importance=importance,
             related_metric='avg_deep_sleep'
         )

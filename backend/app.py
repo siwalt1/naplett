@@ -403,57 +403,55 @@ def update_profile():
 @login_required
 def get_baseline_history():
     """Get historical baseline data for comparing changes over time"""
-    period = request.args.get('period', 'lastMonth')
+    period = request.args.get('period', 'lastTwoWeeks')
 
-    # Get current date
-    latest_date = db.session.query(func.max(SleepRecord.record_date)).filter_by(user_id=current_user.id).scalar()
-
-    if not latest_date:
-        return jsonify({'error': 'No sleep records available'}), 404
-
-    # Determine comparison period
-    if period == 'lastMonth':
-        comparison_lookback = 30
-    elif period == 'lastQuarter':
-        comparison_lookback = 90
-    elif period == 'lastYear':
-        comparison_lookback = 365
-    else:
-        comparison_lookback = 30
-
-    # Get all historical baselines
+    # Get all baselines ordered by date
     baselines = Baseline.query.filter(
         Baseline.user_id == current_user.id
-    ).order_by(Baseline.end_date.desc()).all()
+    ).order_by(Baseline.end_date.asc()).all()
 
     if not baselines:
         return jsonify({'error': 'No baseline data available yet'}), 404
 
-    # Filter baselines based on comparison period
-    filtered_baselines = []
-    latest_baseline_date = baselines[0].end_date
+    # Get the most recent baseline
+    current_baseline = baselines[-1]
 
-    for baseline in baselines:
-        # Only include baselines that are either the most recent or from our comparison period
-        days_apart = (latest_baseline_date - baseline.end_date).days
-        if days_apart == 0 or (days_apart >= comparison_lookback - 14 and days_apart <= comparison_lookback + 14):
-            filtered_baselines.append({
-                'id': baseline.id,
-                'period_name': 'Current' if days_apart == 0 else 'Previous',
-                'start_date': baseline.start_date.isoformat(),
-                'end_date': baseline.end_date.isoformat(),
-                'avg_total_sleep': baseline.avg_total_sleep,
-                'avg_deep_sleep': baseline.avg_deep_sleep,
-                'avg_rem_sleep': baseline.avg_rem_sleep,
-                'avg_light_sleep': baseline.avg_light_sleep,
-                'avg_efficiency': baseline.avg_efficiency,
-                'avg_hrv': baseline.avg_hrv,
-                'avg_resting_hr': baseline.avg_resting_hr,
-                'avg_respiratory_rate': baseline.avg_respiratory_rate
-            })
+    # Filter baselines based on period
+    if period == 'lastTwoWeeks':
+        cutoff_date = current_baseline.end_date - timedelta(days=14)
+    elif period == 'lastMonth':
+        cutoff_date = current_baseline.end_date - timedelta(days=30)
+    elif period == 'lastQuarter':
+        cutoff_date = current_baseline.end_date - timedelta(days=90)
+    elif period == 'lastYear':
+        cutoff_date = current_baseline.end_date - timedelta(days=365)
+    else:
+        cutoff_date = current_baseline.end_date - timedelta(days=14)  # Default
+
+    # Filter baselines by date
+    filtered_baselines = [b for b in baselines if b.end_date >= cutoff_date]
+
+    # Format baseline data for response
+    baseline_history = []
+    for baseline in filtered_baselines:
+        baseline_data = {
+            'id': baseline.id,
+            'date': baseline.end_date.isoformat(),
+            'type': baseline.baseline_type,
+            'avg_total_sleep': baseline.avg_total_sleep,
+            'avg_deep_sleep': baseline.avg_deep_sleep,
+            'avg_rem_sleep': baseline.avg_rem_sleep,
+            'avg_light_sleep': baseline.avg_light_sleep,
+            'avg_efficiency': baseline.avg_efficiency,
+            'avg_hrv': baseline.avg_hrv,
+            'avg_resting_hr': baseline.avg_resting_hr,
+            'avg_respiratory_rate': baseline.avg_respiratory_rate
+        }
+        baseline_history.append(baseline_data)
 
     return jsonify({
-        'baselineHistory': filtered_baselines
+        'current': baseline_history[-1],
+        'history': baseline_history
     }), 200
 
 @app.route('/api/sleep/baseline/insights')

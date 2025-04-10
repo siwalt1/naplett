@@ -161,4 +161,44 @@ def process_oura_import(user_id, file_object):
     # Commit all records to the database
     db.session.commit()
 
+    # If we imported more than 14 days of data, recalculate all baselines
+    if len(processed_records) > 14:
+        # Use process_all_data=True to recalculate all historical baselines
+        from services.analysis import calculate_baseline
+        calculate_baseline(user_id, process_all_data=True)
+    else:
+        # Just update the latest baseline
+        from services.analysis import calculate_baseline
+        calculate_baseline(user_id)
+
+    # Calculate sleep scores and trends
+    calculate_scores_and_trends(user_id, processed_records)
+
     return processed_records
+
+def calculate_scores_and_trends(user_id, processed_records):
+    """
+    Calculate sleep scores for newly imported records and generate trends
+
+    Args:
+        user_id: The ID of the user the data belongs to
+        processed_records: List of processed SleepRecord objects
+    """
+    from services.analysis import calculate_sleep_score, calculate_trends, generate_insights
+
+    # Get the current baseline
+    from models import Baseline
+    baseline = Baseline.query.filter_by(user_id=user_id).order_by(Baseline.updated_at.desc()).first()
+
+    # Calculate sleep scores for records that don't have them
+    for record in processed_records:
+        if record.sleep_score is None:
+            sleep_score_data = calculate_sleep_score(record, baseline)
+            record.sleep_score = sleep_score_data['total_score']
+            record.sleep_score_components = sleep_score_data['components']
+
+    db.session.commit()
+
+    # Update trends and insights
+    calculate_trends(user_id)
+    generate_insights(user_id)

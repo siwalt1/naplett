@@ -10,46 +10,11 @@ function BaselineChangeInsights() {
     useEffect(() => {
         const fetchBaselineInsights = async () => {
             try {
-                // For the MVP, we'll create mock insights instead of calling a real API
-                // In a production app, you would use: await axios.get('/sleep/baseline/insights')
+                // Fetch baseline change insights from the API
+                const response = await axios.get('/sleep/baseline/insights');
 
-                // Get baseline data to generate mock insights
-                const baselineResponse = await axios.get('/sleep/baseline');
-
-                if (baselineResponse.data) {
-                    // Create mock insights
-                    setInsights([
-                        {
-                            id: 1,
-                            type: 'baseline_change',
-                            title: 'Sleep duration has increased',
-                            description: 'Your average sleep duration has increased by 7% compared to your previous baseline. This is a positive change! Sufficient sleep duration is essential for overall health.',
-                            importance: 2,
-                            created_at: new Date().toISOString(),
-                            read: false,
-                            related_metric: 'avg_total_sleep'
-                        },
-                        {
-                            id: 2,
-                            type: 'baseline_change',
-                            title: 'Deep sleep percentage has decreased',
-                            description: 'Your deep sleep percentage has decreased by 12% compared to your previous baseline. Deep sleep is crucial for physical recovery. Consider limiting alcohol and caffeine, and ensuring your bedroom is cool and dark.',
-                            importance: 4,
-                            created_at: new Date().toISOString(),
-                            read: false,
-                            related_metric: 'avg_deep_sleep'
-                        },
-                        {
-                            id: 3,
-                            type: 'baseline_change',
-                            title: 'Heart rate variability has increased',
-                            description: 'Your average HRV has increased by 8% compared to your previous baseline. Higher HRV often indicates better cardiovascular fitness and stress resilience.',
-                            importance: 3,
-                            created_at: new Date().toISOString(),
-                            read: false,
-                            related_metric: 'avg_hrv'
-                        }
-                    ]);
+                if (response.data && response.data.insights) {
+                    setInsights(response.data.insights);
                 } else {
                     setInsights([]);
                 }
@@ -57,7 +22,7 @@ function BaselineChangeInsights() {
                 setError('');
             } catch (err) {
                 console.error('Baseline insights fetch error:', err);
-                setError('Failed to load baseline insights.');
+                setError('Failed to load baseline change insights.');
             } finally {
                 setLoading(false);
             }

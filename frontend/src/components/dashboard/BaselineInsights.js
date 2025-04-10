@@ -1,112 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { Line } from 'react-chartjs-2';
 import LoadingSpinner from '../common/Loading';
+import { formatMetricValue, getMetricLabel } from '../../utils/ChartUtils';
 
 function BaselineInsights() {
     const [baselineHistory, setBaselineHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [comparisonPeriod, setComparisonPeriod] = useState('lastMonth'); // lastMonth, lastQuarter, lastYear
+    const [comparisonPeriod, setComparisonPeriod] = useState('lastTwoWeeks');
+    const [selectedMetric, setSelectedMetric] = useState('avg_total_sleep');
 
-    // useEffect(() => {
-    //     const fetchBaselineHistory = async () => {
-    //         try {
-    //             // Fetch sleep records for the current baseline
-    //             const recordsResponse = await axios.get('/sleep/records', {
-    //                 params: {
-    //                     limit: 14
-    //                 }
-    //             });
-    //
-    //             // Get baseline data
-    //             const baselineResponse = await axios.get('/sleep/baseline');
-    //
-    //             if (baselineResponse.data && recordsResponse.data.records && recordsResponse.data.records.length > 0) {
-    //                 // We don't yet have a history endpoint, so we'll simulate it
-    //                 // In a real app, you would call the /sleep/baseline/history endpoint
-    //                 const currentBaseline = baselineResponse.data;
-    //
-    //                 // Create a simulated previous baseline with some differences
-    //                 const previousBaseline = {
-    //                     ...currentBaseline,
-    //                     id: currentBaseline.id - 1,
-    //                     period_name: 'Previous',
-    //                     avg_total_sleep: currentBaseline.avg_total_sleep * (Math.random() * 0.2 + 0.9), // ±10% variation
-    //                     avg_deep_sleep: currentBaseline.avg_deep_sleep * (Math.random() * 0.2 + 0.9),
-    //                     avg_rem_sleep: currentBaseline.avg_rem_sleep * (Math.random() * 0.2 + 0.9),
-    //                     avg_light_sleep: currentBaseline.avg_light_sleep * (Math.random() * 0.2 + 0.9),
-    //                     avg_efficiency: currentBaseline.avg_efficiency * (Math.random() * 0.2 + 0.9),
-    //                     avg_hrv: currentBaseline.avg_hrv ? currentBaseline.avg_hrv * (Math.random() * 0.2 + 0.9) : null,
-    //                     avg_resting_hr: currentBaseline.avg_resting_hr ? currentBaseline.avg_resting_hr * (Math.random() * 0.2 + 0.9) : null
-    //                 };
-    //
-    //                 setBaselineHistory([
-    //                     {
-    //                         ...currentBaseline,
-    //                         period_name: 'Current'
-    //                     },
-    //                     previousBaseline
-    //                 ]);
-    //             } else {
-    //                 setBaselineHistory([]);
-    //             }
-    //
-    //             setError('');
-    //         } catch (err) {
-    //             console.error('Baseline history fetch error:', err);
-    //             setError('Failed to load baseline history.');
-    //         } finally {
-    //             setLoading(false);
-    //         }
-    //     };
-    //
-    //     fetchBaselineHistory();
-    // }, [comparisonPeriod]);
     useEffect(() => {
         const fetchBaselineHistory = async () => {
             try {
-                // Get baseline data
-                const baselineResponse = await axios.get('/sleep/baseline');
-                console.log("Baseline response:", baselineResponse.data);
+                const response = await axios.get('/sleep/baseline/history', {
+                    params: { period: comparisonPeriod }
+                });
 
-                if (baselineResponse.data) {
-                    const currentBaseline = baselineResponse.data;
-
-                    // Only proceed if we have valid numerical baseline data
-                    if (currentBaseline.avg_total_sleep &&
-                        currentBaseline.avg_deep_sleep &&
-                        currentBaseline.avg_rem_sleep &&
-                        currentBaseline.avg_efficiency) {
-
-                        // Create a simulated previous baseline with some differences
-                        const previousBaseline = {
-                            ...currentBaseline,
-                            id: currentBaseline.id - 1,
-                            period_name: 'Previous',
-                            avg_total_sleep: currentBaseline.avg_total_sleep * 0.95, // 5% less
-                            avg_deep_sleep: currentBaseline.avg_deep_sleep * 0.93,   // 7% less
-                            avg_rem_sleep: currentBaseline.avg_rem_sleep * 0.97,     // 3% less
-                            avg_light_sleep: currentBaseline.avg_light_sleep * 0.96, // 4% less
-                            avg_efficiency: currentBaseline.avg_efficiency * 0.98,   // 2% less
-                            avg_hrv: currentBaseline.avg_hrv ? currentBaseline.avg_hrv * 0.94 : null,
-                            avg_resting_hr: currentBaseline.avg_resting_hr ? currentBaseline.avg_resting_hr * 1.03 : null
-                        };
-
-                        setBaselineHistory([
-                            {
-                                ...currentBaseline,
-                                period_name: 'Current'
-                            },
-                            previousBaseline
-                        ]);
-                    } else {
-                        // Don't simulate if baseline data is incomplete
-                        setBaselineHistory([]);
-                        setError('Baseline data is incomplete. Need more sleep data to generate comparisons.');
-                    }
+                if (response.data && response.data.history) {
+                    setBaselineHistory(response.data.history);
                 } else {
                     setBaselineHistory([]);
                 }
+
+                setError('');
             } catch (err) {
                 console.error('Baseline history fetch error:', err);
                 setError('Failed to load baseline history.');
@@ -117,6 +35,7 @@ function BaselineInsights() {
 
         fetchBaselineHistory();
     }, [comparisonPeriod]);
+
     // Format percentage change with color and arrow
     const formatChange = (current, previous) => {
         if (!previous) return 'N/A';
@@ -129,7 +48,15 @@ function BaselineInsights() {
         let icon = 'arrow-right';
 
         if (!isNeutral) {
-            colorClass = isPositive ? 'text-success' : 'text-danger';
+            // For most metrics, higher is better
+            let isPositiveGood = true;
+
+            // For heart rate, lower is better
+            if (selectedMetric === 'avg_resting_hr') {
+                isPositiveGood = false;
+            }
+
+            colorClass = (isPositive === isPositiveGood) ? 'text-success' : 'text-danger';
             icon = isPositive ? 'arrow-up' : 'arrow-down';
         }
 
@@ -141,12 +68,84 @@ function BaselineInsights() {
         );
     };
 
+    // Prepare chart data
+    const prepareChartData = () => {
+        if (!baselineHistory || baselineHistory.length === 0) {
+            return {
+                labels: [],
+                datasets: []
+            };
+        }
+
+        const labels = baselineHistory.map(baseline => {
+            const date = new Date(baseline.date);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+
+        // Format the selected metric data
+        let data = baselineHistory.map(baseline => {
+            const value = baseline[selectedMetric];
+
+            // Convert sleep duration from minutes to hours
+            if (['avg_total_sleep', 'avg_deep_sleep', 'avg_rem_sleep', 'avg_light_sleep'].includes(selectedMetric)) {
+                return value ? value / 60 : null;
+            }
+
+            return value;
+        });
+
+        // Determine chart color based on metric
+        let borderColor = 'rgba(75, 192, 192, 1)';
+        let backgroundColor = 'rgba(75, 192, 192, 0.2)';
+
+        if (selectedMetric === 'avg_resting_hr') {
+            borderColor = 'rgba(255, 99, 132, 1)';
+            backgroundColor = 'rgba(255, 99, 132, 0.2)';
+        } else if (selectedMetric === 'avg_hrv') {
+            borderColor = 'rgba(54, 162, 235, 1)';
+            backgroundColor = 'rgba(54, 162, 235, 0.2)';
+        }
+
+        return {
+            labels,
+            datasets: [
+                {
+                    label: getMetricLabel(selectedMetric),
+                    data,
+                    fill: true,
+                    borderColor,
+                    backgroundColor,
+                    tension: 0.4
+                }
+            ]
+        };
+    };
+
+    // Chart options
+    const chartOptions = {
+        responsive: true,
+        plugins: {
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return `${context.dataset.label}: ${context.parsed.y}`;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: false
+            }
+        }
+    };
+
     // Check if we have at least two baselines to compare
     const hasBaselineComparison = baselineHistory.length >= 2;
 
     // Get current and previous baseline
-    const currentBaseline = hasBaselineComparison ? baselineHistory[0] : null;
-    const previousBaseline = hasBaselineComparison ? baselineHistory[1] : null;
+    const currentBaseline = hasBaselineComparison ? baselineHistory[baselineHistory.length - 1] : null;
+    const previousBaseline = hasBaselineComparison ? baselineHistory[0] : null;
 
     if (loading) {
         return <LoadingSpinner />;
@@ -155,22 +154,39 @@ function BaselineInsights() {
     return (
         <div className="card shadow-sm mb-4">
             <div className="card-header bg-white d-flex justify-content-between align-items-center">
-                <h5 className="mb-0">Baseline Changes</h5>
-                <select
-                    className="form-select form-select-sm"
-                    style={{ width: 'auto' }}
-                    value={comparisonPeriod}
-                    onChange={(e) => setComparisonPeriod(e.target.value)}
-                >
-                    <option value="lastMonth">vs. Last Month</option>
-                    <option value="lastQuarter">vs. Last Quarter</option>
-                    <option value="lastYear">vs. Last Year</option>
-                </select>
+                <h5 className="mb-0">Baseline Trends</h5>
+                <div className="d-flex align-items-center">
+                    <select
+                        className="form-select form-select-sm me-2"
+                        style={{ width: 'auto' }}
+                        value={comparisonPeriod}
+                        onChange={(e) => setComparisonPeriod(e.target.value)}
+                    >
+                        <option value="lastTwoWeeks">Last 2 Weeks</option>
+                        <option value="lastMonth">Last Month</option>
+                        <option value="lastQuarter">Last Quarter</option>
+                        <option value="lastYear">Last Year</option>
+                    </select>
+
+                    <select
+                        className="form-select form-select-sm"
+                        style={{ width: 'auto' }}
+                        value={selectedMetric}
+                        onChange={(e) => setSelectedMetric(e.target.value)}
+                    >
+                        <option value="avg_total_sleep">Sleep Duration</option>
+                        <option value="avg_deep_sleep">Deep Sleep</option>
+                        <option value="avg_rem_sleep">REM Sleep</option>
+                        <option value="avg_efficiency">Sleep Efficiency</option>
+                        <option value="avg_hrv">Heart Rate Variability</option>
+                        <option value="avg_resting_hr">Resting Heart Rate</option>
+                    </select>
+                </div>
             </div>
 
-            <div className="card-body p-0">
+            <div className="card-body">
                 {error && (
-                    <div className="alert alert-danger m-3" role="alert">
+                    <div className="alert alert-danger" role="alert">
                         {error}
                     </div>
                 )}
@@ -181,73 +197,48 @@ function BaselineInsights() {
                         <p>Continue tracking your sleep to see how your patterns evolve.</p>
                     </div>
                 ) : (
-                    <div className="table-responsive">
-                        <table className="table table-hover mb-0">
-                            <thead className="table-light">
-                            <tr>
-                                <th>Metric</th>
-                                <th>Current</th>
-                                <th>Previous</th>
-                                <th>Change</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {currentBaseline.avg_total_sleep && previousBaseline.avg_total_sleep ? (
-                                <tr>
-                                    <td>Average Sleep Duration</td>
-                                    <td>{(currentBaseline.avg_total_sleep / 60).toFixed(1)} hrs</td>
-                                    <td>{(previousBaseline.avg_total_sleep / 60).toFixed(1)} hrs</td>
-                                    <td>{formatChange(currentBaseline.avg_total_sleep, previousBaseline.avg_total_sleep)}</td>
-                                </tr>
-                            ) : null}
+                    <>
+                        <div className="mb-4">
+                            <Line data={prepareChartData()} options={chartOptions} />
+                        </div>
 
-                            {currentBaseline.avg_deep_sleep && previousBaseline.avg_deep_sleep ? (
+                        <div className="table-responsive">
+                            <table className="table table-hover mb-0">
+                                <thead className="table-light">
                                 <tr>
-                                    <td>Deep Sleep</td>
-                                    <td>{(currentBaseline.avg_deep_sleep / 60).toFixed(1)} hrs</td>
-                                    <td>{(previousBaseline.avg_deep_sleep / 60).toFixed(1)} hrs</td>
-                                    <td>{formatChange(currentBaseline.avg_deep_sleep, previousBaseline.avg_deep_sleep)}</td>
+                                    <th>Metric</th>
+                                    <th>Current</th>
+                                    <th>Previous</th>
+                                    <th>Change</th>
                                 </tr>
-                            ) : null}
+                                </thead>
+                                <tbody>
+                                {[
+                                    'avg_total_sleep',
+                                    'avg_deep_sleep',
+                                    'avg_rem_sleep',
+                                    'avg_efficiency',
+                                    'avg_hrv',
+                                    'avg_resting_hr'
+                                ].map(metric => {
+                                    if (!currentBaseline || !previousBaseline ||
+                                        currentBaseline[metric] === null || previousBaseline[metric] === null) {
+                                        return null;
+                                    }
 
-                            {currentBaseline.avg_rem_sleep && previousBaseline.avg_rem_sleep ? (
-                                <tr>
-                                    <td>REM Sleep</td>
-                                    <td>{(currentBaseline.avg_rem_sleep / 60).toFixed(1)} hrs</td>
-                                    <td>{(previousBaseline.avg_rem_sleep / 60).toFixed(1)} hrs</td>
-                                    <td>{formatChange(currentBaseline.avg_rem_sleep, previousBaseline.avg_rem_sleep)}</td>
-                                </tr>
-                            ) : null}
-
-                            {currentBaseline.avg_efficiency && previousBaseline.avg_efficiency ? (
-                                <tr>
-                                    <td>Sleep Efficiency</td>
-                                    <td>{parseFloat(currentBaseline.avg_efficiency).toFixed(1)}%</td>
-                                    <td>{parseFloat(previousBaseline.avg_efficiency).toFixed(1)}%</td>
-                                    <td>{formatChange(currentBaseline.avg_efficiency, previousBaseline.avg_efficiency)}</td>
-                                </tr>
-                            ) : null}
-
-                            {currentBaseline.avg_hrv && previousBaseline.avg_hrv ? (
-                                <tr>
-                                    <td>Heart Rate Variability</td>
-                                    <td>{parseFloat(currentBaseline.avg_hrv).toFixed(1)} ms</td>
-                                    <td>{parseFloat(previousBaseline.avg_hrv).toFixed(1)} ms</td>
-                                    <td>{formatChange(currentBaseline.avg_hrv, previousBaseline.avg_hrv)}</td>
-                                </tr>
-                            ) : null}
-
-                            {currentBaseline.avg_resting_hr && previousBaseline.avg_resting_hr ? (
-                                <tr>
-                                    <td>Resting Heart Rate</td>
-                                    <td>{parseFloat(currentBaseline.avg_resting_hr).toFixed(1)} bpm</td>
-                                    <td>{parseFloat(previousBaseline.avg_resting_hr).toFixed(1)} bpm</td>
-                                    <td>{formatChange(previousBaseline.avg_resting_hr, currentBaseline.avg_resting_hr)}</td>
-                                </tr>
-                            ) : null}
-                            </tbody>
-                        </table>
-                    </div>
+                                    return (
+                                        <tr key={metric} className={metric === selectedMetric ? 'table-active' : ''}>
+                                            <td>{getMetricLabel(metric)}</td>
+                                            <td>{formatMetricValue(metric, currentBaseline[metric])}</td>
+                                            <td>{formatMetricValue(metric, previousBaseline[metric])}</td>
+                                            <td>{formatChange(currentBaseline[metric], previousBaseline[metric])}</td>
+                                        </tr>
+                                    );
+                                })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
                 )}
             </div>
 
