@@ -47,32 +47,26 @@ function SleepPatterns() {
                 label: 'Bedtime',
                 data: sleepPatterns.map(record => {
                     const bedtime = new Date(record.bedtime_start);
-                    // Handle bedtime after midnight (e.g., 1am should be represented as 25 hours)
-                    let hours = bedtime.getHours();
-                    if (hours < 12) {
-                        hours += 24;
-                    }
-                    return hours + (bedtime.getMinutes() / 60);
+                    return bedtime.getHours() + (bedtime.getMinutes() / 60);
                 }),
                 borderColor: 'rgba(75, 192, 192, 1)',
                 backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                tension: 0.4
+                tension: 0.4,
+                pointRadius: 5
             },
             {
                 label: 'Wake Time',
                 data: sleepPatterns.map(record => {
                     const wakeTime = new Date(record.bedtime_end);
-                    let hours = wakeTime.getHours();
-                    // Ensure wake time is properly displayed (e.g. 7am is 7, not 31)
-                    return hours + (wakeTime.getMinutes() / 60);
+                    return wakeTime.getHours() + (wakeTime.getMinutes() / 60);
                 }),
                 borderColor: 'rgba(255, 99, 132, 1)',
                 backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                tension: 0.4
+                tension: 0.4,
+                pointRadius: 5
             }
         ]
     };
-
     // Calculate sleep duration consistency
     const calculateConsistency = () => {
         if (sleepPatterns.length < 3) return { score: 'N/A', message: 'Need more data' };
@@ -147,8 +141,47 @@ function SleepPatterns() {
     const consistencyData = calculateConsistency();
     const bedtimeConsistencyData = calculateBedtimeConsistency();
 
+    // Find the latest and earliest bedtimes to determine proper y-axis range
+    const determineYAxisRange = () => {
+        if (!sleepPatterns || sleepPatterns.length === 0) {
+            return { min: 0, max: 24 };
+        }
+
+        // Extract all bedtime hours (converted to 0-24 scale)
+        const bedtimeHours = sleepPatterns.map(record => {
+            const bedtime = new Date(record.bedtime_start);
+            let hours = bedtime.getHours();
+            let minutes = bedtime.getMinutes() / 60;
+            return hours + minutes;
+        });
+
+        // Extract all wake time hours
+        const wakeTimeHours = sleepPatterns.map(record => {
+            const wakeTime = new Date(record.bedtime_end);
+            let hours = wakeTime.getHours();
+            let minutes = wakeTime.getMinutes() / 60;
+            return hours + minutes;
+        });
+
+        // Find min and max values with padding
+        const minTime = Math.min(...wakeTimeHours, ...bedtimeHours);
+        const maxTime = Math.max(...wakeTimeHours, ...bedtimeHours);
+
+        // Ensure we have a reasonable range (at least 6 hours shown)
+        const range = Math.max(maxTime - minTime, 6);
+
+        // Add padding
+        const min = Math.max(0, Math.floor(minTime - 1));
+        const max = Math.min(24, Math.ceil(maxTime + 1));
+
+        return { min, max };
+    };
+
+    const yAxisRange = determineYAxisRange();
+
     const chartOptions = {
         responsive: true,
+        maintainAspectRatio: false,
         plugins: {
             tooltip: {
                 callbacks: {
@@ -156,22 +189,26 @@ function SleepPatterns() {
                         const value = context.parsed.y;
                         const hours = Math.floor(value);
                         const minutes = Math.round((value - hours) * 60);
-                        return `${context.dataset.label}: ${hours % 24}:${minutes.toString().padStart(2, '0')} ${hours >= 24 || (hours >= 0 && hours < 12) ? 'AM' : 'PM'}`;
+                        return `${context.dataset.label}: ${hours % 24}:${minutes.toString().padStart(2, '0')} ${hours >= 12 && hours < 24 ? 'PM' : 'AM'}`;
                     }
                 }
             }
         },
         scales: {
             y: {
-                min: 0,
-                max: 12,
+                min: yAxisRange.min,
+                max: yAxisRange.max,
+                reverse: true, // This makes times flow from top (early) to bottom (late)
                 ticks: {
                     callback: function(value) {
-                        // Convert 24-hour format to 12-hour format with AM/PM
-                        const hour = value % 12 || 12;
-                        const ampm = value >= 12 ? 'PM' : 'AM';
-                        return `${hour} ${ampm}`;
-                    }
+                        if (value === 0) return '12 AM';
+                        if (value === 12) return '12 PM';
+
+                        if (value < 12) return `${value} AM`;
+                        return `${value - 12} PM`;
+                    },
+                    stepSize: 2, // Show tick every 2 hours for less clutter
+                    autoSkip: false
                 },
                 title: {
                     display: true,
@@ -180,11 +217,6 @@ function SleepPatterns() {
             }
         }
     };
-
-    // If bedtime times extend past midnight, adjust the scale
-    if (bedtimeData.datasets[0].data.some(time => time > 24)) {
-        chartOptions.scales.y.max = 28; // Show up to 4am
-    }
 
     if (loading) {
         return (
@@ -228,7 +260,9 @@ function SleepPatterns() {
                             </div>
 
                             {sleepPatterns.length > 0 ? (
-                                <Line data={bedtimeData} options={chartOptions} />
+                                <div style={{ height: '350px' }}> {/* Fixed height container */}
+                                    <Line data={bedtimeData} options={chartOptions} />
+                                </div>
                             ) : (
                                 <div className="text-center py-5 text-muted">
                                     <p>No sleep data available.</p>
